@@ -3,46 +3,140 @@ import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.entity.enums.TaskState;
+import io.nikitoo0os.factory.TrackingCallableFactory;
 import io.nikitoo0os.factory.TrackingRunnableFactory;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class TrackingExecutorTest {
 
+    private Registry registry;
+    private Operation operation;
+    private ExecutorService executor;
+    private TrackingExecutorService trackingExecutor;
+
+    @BeforeEach
+    void setUp() {
+        registry = new Registry();
+        operation = new Operation("TestOperation");
+        registry.registerOperation(operation);
+        executor = Executors.newSingleThreadExecutor();
+
+        trackingExecutor = new TrackingExecutorService(
+                executor,
+                new TrackingRunnableFactory(registry),
+                new TrackingCallableFactory(registry)
+        );
+    }
+
+    @AfterEach
+    void tearDown() {
+        executor.shutdownNow();
+    }
+
     @Test
     void submitShouldTrackAndCompleteTask() throws InterruptedException, TimeoutException, ExecutionException {
-        Registry registry = new Registry();
-        Operation operation = new Operation("TestOperation");
-        registry.registerOperation(operation);
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "TestTask",
+                () -> {
+                }
+        );
 
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        future.get(1, TimeUnit.SECONDS);
+        List<Task> tasks = registry.findTasksByOperation(operation.getId());
+        assertEquals(1, tasks.size());
+        Task task = tasks.getFirst();
+        assertEquals(TaskState.COMPLETED, task.getState());
+    }
 
-        TrackingRunnableFactory factory =
-                new TrackingRunnableFactory(registry);
+    @Test
+    void submitShouldPropagateExceptionAndFailTask() {
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "TestTask",
+                () -> {
+                    throw new RuntimeException("Some runtime exception");
+                }
+        );
+        ExecutionException exception = assertThrows(
+                ExecutionException.class,
+                () -> future.get(1, TimeUnit.SECONDS)
+        );
 
-        TrackingExecutorService trackingExecutor =
-                new TrackingExecutorService(executor, factory);
+        assertInstanceOf(RuntimeException.class, exception.getCause());
 
-        try {
-            Future<?> future = trackingExecutor.submit(
-                    operation,
-                    "TestTask",
-                    () -> {
+        List<Task> tasks = registry.findTasksByOperation(operation.getId());
+        Task task = tasks.getFirst();
+        assertEquals(TaskState.FAILED, task.getState());
+    }
+
+    @Test
+    void submitShouldPropagateErrorAndFailTask() {
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "TestTask",
+                () -> {
+                    throw new AssertionError("Some error");
+                }
+        );
+        ExecutionException exception = assertThrows(
+                ExecutionException.class,
+                () -> future.get(1, TimeUnit.SECONDS)
+        );
+
+        assertInstanceOf(AssertionError.class, exception.getCause());
+
+        List<Task> tasks = registry.findTasksByOperation(operation.getId());
+        Task task = tasks.getFirst();
+        assertEquals(TaskState.FAILED, task.getState());
+    }
+
+    @Test
+    void submitShouldPreserveOriginalFailureWhenFailTransitionThrows() throws InterruptedException {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch continueExecution = new CountDownLatch(1);
+
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "TestTask",
+                () -> {
+                    started.countDown();
+
+                    try {
+                        continueExecution.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
                     }
-            );
 
-            future.get(1, TimeUnit.SECONDS);
-            List<Task> tasks = registry.findTasksByOperation(operation.getId());
-            assertEquals(1, tasks.size());
-            Task task = tasks.getFirst();
-            assertEquals(TaskState.COMPLETED, task.getState());
+                    throw new AssertionError("Original failure");
+                }
+        );
+        assertTrue(started.await(1, TimeUnit.SECONDS));
+        Task task = registry
+                .findTasksByOperation(operation.getId())
+                .getFirst();
+        task.complete();
+        continueExecution.countDown();
 
-        } finally {
-            executor.shutdownNow();
-        }
+        ExecutionException executionException = assertThrows(
+                ExecutionException.class,
+                () -> future.get(1, TimeUnit.SECONDS)
+        );
+        Throwable original = executionException.getCause();
+        Throwable[] suppressed = original.getSuppressed();
+
+        assertInstanceOf(AssertionError.class, original);
+        assertEquals("Original failure", original.getMessage());
+
+        assertEquals(1, suppressed.length);
+        assertInstanceOf(IllegalStateException.class, suppressed[0]);
     }
 }

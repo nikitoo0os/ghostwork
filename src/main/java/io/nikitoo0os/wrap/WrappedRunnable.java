@@ -1,4 +1,6 @@
-package io.nikitoo0os.entity;
+package io.nikitoo0os.wrap;
+
+import io.nikitoo0os.entity.Task;
 
 import java.util.Objects;
 
@@ -17,10 +19,17 @@ public final class WrappedRunnable implements Runnable {
         task.start();
         try {
             delegate.run();
-            task.complete();
-        } catch (RuntimeException e) {
-            task.fail();
-            throw e;
+
+        } catch (Throwable original) {
+            try {
+                task.fail();
+            } catch (Throwable stateFailure) {
+                original.addSuppressed(stateFailure);
+            }
+
+            throw original;
         }
+
+        task.complete();
     }
 }

@@ -1,6 +1,6 @@
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Task;
-import io.nikitoo0os.entity.WrappedRunnable;
+import io.nikitoo0os.wrap.WrappedRunnable;
 import io.nikitoo0os.entity.enums.TaskState;
 import org.junit.jupiter.api.Test;
 
