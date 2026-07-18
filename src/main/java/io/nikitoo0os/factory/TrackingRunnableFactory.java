@@ -5,17 +5,28 @@ import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.wrap.WrappedRunnable;
 
+import java.time.Clock;
 import java.util.Objects;
 
 public final class TrackingRunnableFactory {
     private final Registry registry;
+    private final Clock clock;
+
     public TrackingRunnableFactory(Registry registry) {
-        this.registry = Objects.requireNonNull(registry);
+        this(registry, Clock.systemUTC());
     }
 
-    public WrappedRunnable wrap(Operation operation, String taskName, Runnable delegate){
+    public TrackingRunnableFactory(Registry registry, Clock clock) {
+        this.registry = Objects.requireNonNull(registry);
+        this.clock = Objects.requireNonNull(clock);
+    }
+
+    public WrappedRunnable wrap(Operation operation, String taskName, Runnable delegate) {
+        Objects.requireNonNull(operation);
+        Objects.requireNonNull(delegate);
+
         Task task = new Task(taskName, operation);
         registry.registerTask(task);
-        return new WrappedRunnable(delegate, task);
+        return new WrappedRunnable(delegate, task, clock);
     }
 }

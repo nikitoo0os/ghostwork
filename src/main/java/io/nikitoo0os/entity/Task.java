@@ -2,6 +2,7 @@ package io.nikitoo0os.entity;
 
 import io.nikitoo0os.entity.enums.TaskState;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -24,46 +25,101 @@ public final class Task {
         this.taskSnapshot = new AtomicReference<>(new TaskSnapshot(null, null, TaskState.CREATED));
     }
 
-    public void start() {
+    public void start(Instant startedAt) {
+        Objects.requireNonNull(
+                startedAt,
+                "Started time must not be null"
+        );
+
         TaskSnapshot currentSnapshot = taskSnapshot.get();
-        if (currentSnapshot.getState() == TaskState.CREATED) {
-            TaskSnapshot newSnapshot = new TaskSnapshot(Instant.now(), null, TaskState.RUNNING);
-            boolean changed = taskSnapshot.compareAndSet(currentSnapshot, newSnapshot);
-            if(!changed){
-                throw new IllegalStateException("The other thread has already started the task");
-            }
-        } else {
-            throw new IllegalStateException("The task cannot switch from state " + currentSnapshot.getState() + " to state running");
+
+        if (currentSnapshot.getState() != TaskState.CREATED) {
+            throw new IllegalStateException(
+                    "The task cannot switch from state " +
+                            currentSnapshot.getState() +
+                            " to state " +
+                            TaskState.RUNNING
+            );
         }
 
+        TaskSnapshot newSnapshot = new TaskSnapshot(
+                startedAt,
+                null,
+                TaskState.RUNNING
+        );
+
+        boolean changed = taskSnapshot.compareAndSet(
+                currentSnapshot,
+                newSnapshot
+        );
+
+        if (!changed) {
+            throw new IllegalStateException(
+                    "The other thread has already started the task"
+            );
+        }
     }
 
-    public void complete() {
-        finishState(TaskState.COMPLETED);
+    public void complete(Instant finishedAt) {
+        finishState(finishedAt, TaskState.COMPLETED);
     }
 
-    public void fail() {
-        finishState(TaskState.FAILED);
+    public void fail(Instant finishedAt) {
+        finishState(finishedAt, TaskState.FAILED);
     }
 
-    private void finishState(TaskState taskState) {
+    private void finishState(
+            Instant finishedAt,
+            TaskState targetState
+    ) {
+        Objects.requireNonNull(
+                finishedAt,
+                "Finished time must not be null"
+        );
+        Objects.requireNonNull(
+                targetState,
+                "Target state must not be null"
+        );
+
+        if (targetState == TaskState.RUNNING ||
+                targetState == TaskState.CREATED) {
+            throw new IllegalArgumentException(
+                    "Target state must be final"
+            );
+        }
+
         TaskSnapshot currentSnapshot = taskSnapshot.get();
-        if (taskState != null) {
-            if (taskState != TaskState.RUNNING) {
-                if (currentSnapshot.getState() == TaskState.RUNNING) {
-                    TaskSnapshot newSnapshot = new TaskSnapshot(currentSnapshot.getStartedAt(), Instant.now(), taskState);
-                    boolean changed = taskSnapshot.compareAndSet(currentSnapshot, newSnapshot);
-                    if(!changed){
-                        throw new IllegalStateException("The other thread has already finished the task");
-                    }
-                } else {
-                    throw new IllegalStateException("The task cannot switch from state " + currentSnapshot.getState() + " to state " + taskState.name() + ".");
-                }
-            } else {
-                throw new IllegalArgumentException("RUNNING cannot be used as the final state.");
-            }
-        } else {
-            throw new NullPointerException("Target state must not be null");
+
+        if (currentSnapshot.getState() != TaskState.RUNNING) {
+            throw new IllegalStateException(
+                    "The task cannot switch from state " +
+                            currentSnapshot.getState() +
+                            " to state " +
+                            targetState
+            );
+        }
+
+        if (finishedAt.isBefore(currentSnapshot.getStartedAt())) {
+            throw new IllegalArgumentException(
+                    "Finished time cannot be before task start time"
+            );
+        }
+
+        TaskSnapshot newSnapshot = new TaskSnapshot(
+                currentSnapshot.getStartedAt(),
+                finishedAt,
+                targetState
+        );
+
+        boolean changed = taskSnapshot.compareAndSet(
+                currentSnapshot,
+                newSnapshot
+        );
+
+        if (!changed) {
+            throw new IllegalStateException(
+                    "The other thread has already finished the task"
+            );
         }
     }
 
@@ -104,7 +160,41 @@ public final class Task {
     }
 
     public boolean isFinished() {
-        TaskState currentSnapshotState = taskSnapshot.get().getState();
-        return currentSnapshotState != TaskState.RUNNING && currentSnapshotState != TaskState.CREATED;
+        TaskState state = taskSnapshot.get().getState();
+        return state == TaskState.COMPLETED ||
+                state == TaskState.FAILED;
+    }
+
+    public boolean isRunningLongerThan(
+            Duration threshold,
+            Instant targetTime
+    ) {
+        Objects.requireNonNull(threshold, "Threshold must not be null");
+        Objects.requireNonNull(targetTime, "Target time must not be null");
+
+        if (threshold.isZero() || threshold.isNegative()) {
+            throw new IllegalArgumentException(
+                    "Threshold must be positive"
+            );
+        }
+
+        TaskSnapshot snapshot = taskSnapshot.get();
+
+        if (snapshot.getState() != TaskState.RUNNING) {
+            return false;
+        }
+
+        if (targetTime.isBefore(snapshot.getStartedAt())) {
+            throw new IllegalArgumentException(
+                    "Target time cannot be before task start time"
+            );
+        }
+
+        Duration runningDuration = Duration.between(
+                snapshot.getStartedAt(),
+                targetTime
+        );
+
+        return runningDuration.compareTo(threshold) > 0;
     }
 }

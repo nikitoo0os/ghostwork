@@ -1,127 +1,199 @@
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.entity.enums.TaskState;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class TaskTest {
 
-    @Test
-    void newTaskShouldHaveCreatedStateWithoutTimes(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
+    private Clock clock;
+    private Operation operation;
+    private Task task;
 
-        assertEquals(
-                TaskState.CREATED,
-                task.getState()
+    @BeforeEach
+    void setUp() {
+        clock = Clock.fixed(
+                Instant.parse("2026-01-01T10:00:00Z"),
+                ZoneOffset.UTC
         );
+
+        operation = new Operation("Test Operation");
+        task = new Task("Test task", operation);
+    }
+
+    @Test
+    void newTaskShouldHaveCreatedStateWithoutTimes() {
+        assertEquals(TaskState.CREATED, task.getState());
         assertNull(task.getStartedAt());
         assertNull(task.getFinishedAt());
     }
 
     @Test
-    void runningTaskShouldHaveRunningStateAndNullEndTime(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
-        task.start();
+    void runningTaskShouldHaveRunningStateAndNullEndTime() {
+        Instant startedAt = Instant.now(clock);
 
-        assertEquals(
-                TaskState.RUNNING,
-                task.getState()
-        );
-        assertNotNull(task.getStartedAt());
+        task.start(startedAt);
+
+        assertEquals(TaskState.RUNNING, task.getState());
+        assertEquals(startedAt, task.getStartedAt());
         assertNull(task.getFinishedAt());
     }
 
     @Test
-    void completedTaskShouldHaveCompletedStateAndNotNullEndTime(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
-        task.start();
-        task.complete();
+    void completedTaskShouldHaveCompletedStateAndExpectedTimes() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.plusSeconds(10);
 
-        assertEquals(
-                TaskState.COMPLETED,
-                task.getState()
+        task.start(startedAt);
+        task.complete(finishedAt);
+
+        assertEquals(TaskState.COMPLETED, task.getState());
+        assertEquals(startedAt, task.getStartedAt());
+        assertEquals(finishedAt, task.getFinishedAt());
+    }
+
+    @Test
+    void createdTaskShouldNotGoToCompleteState() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.complete(Instant.now(clock))
         );
-        assertNotNull(task.getStartedAt());
-        assertNotNull(task.getFinishedAt());
     }
 
     @Test
-    void createdTaskShouldNotGoToCompleteState(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
-        assertThrows(IllegalStateException.class, task::complete);
-    }
-    @Test
-    void createdTaskShouldNotGoToFailState(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
-        assertThrows(IllegalStateException.class, task::fail);
-    }
-    @Test
-    void runningTaskShouldNotStart(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
-        task.start();
-        assertThrows(IllegalStateException.class, task::start);
-
+    void createdTaskShouldNotGoToFailState() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.fail(Instant.now(clock))
+        );
     }
 
     @Test
-    void runningTaskShouldGoToFailedState(){
-        Operation operation = new Operation("Test Operation");
-        Task task = new Task("Test task", operation);
-        task.start();
-        task.fail();
+    void runningTaskShouldNotStartAgain() {
+        task.start(Instant.now(clock));
 
-        assertNotNull(task.getStartedAt());
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.start(Instant.now(clock))
+        );
+    }
+
+    @Test
+    void runningTaskShouldGoToFailedState() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.plusSeconds(10);
+
+        task.start(startedAt);
+        task.fail(finishedAt);
+
         assertEquals(TaskState.FAILED, task.getState());
-        assertNotNull(task.getFinishedAt());
+        assertEquals(startedAt, task.getStartedAt());
+        assertEquals(finishedAt, task.getFinishedAt());
     }
 
     @Test
-    void concurrentCompletionShouldAllowOnlyOneSuccessfulTransition() throws InterruptedException {
-        Operation operation = new Operation("TestOperation");
-        Task task = new Task("TestTask", operation);
-        task.start();
+    void taskShouldNotCompleteBeforeItStarted() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.minusSeconds(1);
 
-        AtomicInteger successCount = new AtomicInteger(0);
+        task.start(startedAt);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> task.complete(finishedAt)
+        );
+    }
+
+    @Test
+    void taskShouldNotFailBeforeItStarted() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.minusSeconds(1);
+
+        task.start(startedAt);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> task.fail(finishedAt)
+        );
+    }
+
+    @Test
+    void taskShouldRejectNullStartTime() {
+        assertThrows(
+                NullPointerException.class,
+                () -> task.start(null)
+        );
+    }
+
+    @Test
+    void taskShouldRejectNullCompletionTime() {
+        task.start(Instant.now(clock));
+
+        assertThrows(
+                NullPointerException.class,
+                () -> task.complete(null)
+        );
+    }
+
+    @Test
+    void taskShouldRejectNullFailureTime() {
+        task.start(Instant.now(clock));
+
+        assertThrows(
+                NullPointerException.class,
+                () -> task.fail(null)
+        );
+    }
+
+    @Test
+    void concurrentCompletionShouldAllowOnlyOneSuccessfulTransition()
+            throws InterruptedException {
+        task.start(Instant.now(clock));
+
+        AtomicInteger successCount = new AtomicInteger();
 
         Thread t1 = new Thread(() -> {
             try {
-                task.complete();
+                task.complete(Instant.now(clock));
                 successCount.incrementAndGet();
-            } catch (IllegalStateException _) {
+            } catch (IllegalStateException ignored) {
                 // Another thread completed the task first.
             }
         });
 
         Thread t2 = new Thread(() -> {
             try {
-                task.fail();
+                task.fail(Instant.now(clock));
                 successCount.incrementAndGet();
-            } catch (IllegalStateException _) {
+            } catch (IllegalStateException ignored) {
                 // Another thread completed the task first.
             }
         });
 
         t1.start();
         t2.start();
+
         t1.join();
         t2.join();
 
         assertEquals(1, successCount.get());
+
         TaskState taskState = task.getState();
+
         assertTrue(
                 taskState == TaskState.COMPLETED
                         || taskState == TaskState.FAILED
         );
+
         assertNotNull(task.getStartedAt());
         assertNotNull(task.getFinishedAt());
     }
 }
+

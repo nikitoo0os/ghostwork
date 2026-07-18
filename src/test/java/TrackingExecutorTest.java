@@ -9,13 +9,22 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class TrackingExecutorTest {
 
+    private Clock clock;
     private Registry registry;
     private Operation operation;
     private ExecutorService executor;
@@ -23,15 +32,22 @@ public class TrackingExecutorTest {
 
     @BeforeEach
     void setUp() {
+        clock = Clock.fixed(
+                Instant.parse("2026-01-01T10:00:00Z"),
+                ZoneOffset.UTC
+        );
+
         registry = new Registry();
+
         operation = new Operation("TestOperation");
         registry.registerOperation(operation);
+
         executor = Executors.newSingleThreadExecutor();
 
         trackingExecutor = new TrackingExecutorService(
                 executor,
-                new TrackingRunnableFactory(registry),
-                new TrackingCallableFactory(registry)
+                new TrackingRunnableFactory(registry, clock),
+                new TrackingCallableFactory(registry, clock)
         );
     }
 
@@ -41,7 +57,7 @@ public class TrackingExecutorTest {
     }
 
     @Test
-    void submitShouldTrackAndCompleteTask() throws InterruptedException, TimeoutException, ExecutionException {
+    void submitShouldTrackAndCompleteTask() throws Exception {
         Future<?> future = trackingExecutor.submit(
                 operation,
                 "TestTask",
@@ -50,10 +66,17 @@ public class TrackingExecutorTest {
         );
 
         future.get(1, TimeUnit.SECONDS);
-        List<Task> tasks = registry.findTasksByOperation(operation.getId());
+
+        List<Task> tasks =
+                registry.findTasksByOperation(operation.getId());
+
         assertEquals(1, tasks.size());
+
         Task task = tasks.getFirst();
+
         assertEquals(TaskState.COMPLETED, task.getState());
+        assertEquals(Instant.now(clock), task.getStartedAt());
+        assertEquals(Instant.now(clock), task.getFinishedAt());
     }
 
     @Test
@@ -62,19 +85,29 @@ public class TrackingExecutorTest {
                 operation,
                 "TestTask",
                 () -> {
-                    throw new RuntimeException("Some runtime exception");
+                    throw new RuntimeException(
+                            "Some runtime exception"
+                    );
                 }
         );
+
         ExecutionException exception = assertThrows(
                 ExecutionException.class,
                 () -> future.get(1, TimeUnit.SECONDS)
         );
 
-        assertInstanceOf(RuntimeException.class, exception.getCause());
+        assertInstanceOf(
+                RuntimeException.class,
+                exception.getCause()
+        );
 
-        List<Task> tasks = registry.findTasksByOperation(operation.getId());
-        Task task = tasks.getFirst();
+        Task task = registry
+                .findTasksByOperation(operation.getId())
+                .getFirst();
+
         assertEquals(TaskState.FAILED, task.getState());
+        assertEquals(Instant.now(clock), task.getStartedAt());
+        assertEquals(Instant.now(clock), task.getFinishedAt());
     }
 
     @Test
@@ -86,20 +119,27 @@ public class TrackingExecutorTest {
                     throw new AssertionError("Some error");
                 }
         );
+
         ExecutionException exception = assertThrows(
                 ExecutionException.class,
                 () -> future.get(1, TimeUnit.SECONDS)
         );
 
-        assertInstanceOf(AssertionError.class, exception.getCause());
+        assertInstanceOf(
+                AssertionError.class,
+                exception.getCause()
+        );
 
-        List<Task> tasks = registry.findTasksByOperation(operation.getId());
-        Task task = tasks.getFirst();
+        Task task = registry
+                .findTasksByOperation(operation.getId())
+                .getFirst();
+
         assertEquals(TaskState.FAILED, task.getState());
     }
 
     @Test
-    void submitShouldPreserveOriginalFailureWhenFailTransitionThrows() throws InterruptedException {
+    void submitShouldPreserveOriginalFailureWhenFailTransitionThrows()
+            throws InterruptedException {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch continueExecution = new CountDownLatch(1);
 
@@ -111,25 +151,30 @@ public class TrackingExecutorTest {
 
                     try {
                         continueExecution.await();
-                    } catch (InterruptedException e) {
+                    } catch (InterruptedException exception) {
                         Thread.currentThread().interrupt();
-                        throw new RuntimeException(e);
+                        throw new RuntimeException(exception);
                     }
 
                     throw new AssertionError("Original failure");
                 }
         );
+
         assertTrue(started.await(1, TimeUnit.SECONDS));
+
         Task task = registry
                 .findTasksByOperation(operation.getId())
                 .getFirst();
-        task.complete();
+
+        task.complete(Instant.now(clock));
+
         continueExecution.countDown();
 
         ExecutionException executionException = assertThrows(
                 ExecutionException.class,
                 () -> future.get(1, TimeUnit.SECONDS)
         );
+
         Throwable original = executionException.getCause();
         Throwable[] suppressed = original.getSuppressed();
 
@@ -137,6 +182,9 @@ public class TrackingExecutorTest {
         assertEquals("Original failure", original.getMessage());
 
         assertEquals(1, suppressed.length);
-        assertInstanceOf(IllegalStateException.class, suppressed[0]);
+        assertInstanceOf(
+                IllegalStateException.class,
+                suppressed[0]
+        );
     }
 }

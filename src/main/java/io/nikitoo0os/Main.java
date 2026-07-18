@@ -41,7 +41,7 @@ public class Main {
         System.out.println(t.getState());
         operation.timeout();
         Detector detector = new Detector(registry);
-        detector.detect(operation.getId());
+        detector.detectGhostTasks(operation.getId());
 
     }
 }
