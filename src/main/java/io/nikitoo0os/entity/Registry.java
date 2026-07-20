@@ -95,6 +95,11 @@ public final class Registry {
         } else {
             throw new NullPointerException("UUID operation must not be null");
         }
-
     }
+
+    public List<Operation> findOperations() {
+        return List.copyOf(operations.values());
+    }
+
+
 }

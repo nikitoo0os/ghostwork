@@ -2,6 +2,7 @@ import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.entity.enums.TaskState;
+import io.nikitoo0os.factory.TrackingRunnable;
 import io.nikitoo0os.factory.TrackingRunnableFactory;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +23,7 @@ public class TrackingRunnableFactoryTest {
             int c = 2 + 5;
         };
 
-        runnable = trackingRunnableFactory.wrap(
+        TrackingRunnable trackingRunnable = trackingRunnableFactory.wrap(
                 operation,
                 "TestTask",
                 runnable
@@ -36,7 +37,7 @@ public class TrackingRunnableFactoryTest {
 
         assertEquals(TaskState.CREATED, task.getState());
 
-        runnable.run();
+        trackingRunnable.runnable().run();
 
         assertEquals(TaskState.COMPLETED, task.getState());
         assertNotNull(task.getStartedAt());

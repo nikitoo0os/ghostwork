@@ -87,4 +87,39 @@ public class OperationContextTest {
                 OperationContext.current()
         );
     }
+
+    @Test
+    void openShouldExposeOperationUntilScopeIsClosed() {
+        Operation operation = new Operation("TestOperation");
+
+        try (OperationContext.Scope ignored = OperationContext.open(operation)) {
+            assertEquals(
+                    Optional.of(operation),
+                    OperationContext.current()
+            );
+        }
+
+        assertTrue(OperationContext.current().isEmpty());
+    }
+
+    @Test
+    void openShouldRestorePreviousOperationWhenScopeIsClosed() {
+        Operation outerOperation = new Operation("OuterOperation");
+        Operation innerOperation = new Operation("InnerOperation");
+
+        OperationContext.set(outerOperation);
+
+        try (OperationContext.Scope ignored =
+                     OperationContext.open(innerOperation)) {
+            assertEquals(
+                    Optional.of(innerOperation),
+                    OperationContext.current()
+            );
+        }
+
+        assertEquals(
+                Optional.of(outerOperation),
+                OperationContext.current()
+        );
+    }
 }

@@ -1,8 +1,11 @@
+import io.nikitoo0os.context.OperationContext;
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.wrap.WrappedRunnable;
 import io.nikitoo0os.entity.enums.TaskState;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,5 +52,40 @@ public class WrappedRunnableTest {
         assertNotNull(task.getStartedAt());
         assertNotNull(task.getFinishedAt());
 
+    }
+
+    @Test
+    void whenDelegateThrowsWrapperShouldRestorePreviousOperationContext() {
+        Operation previousOperation = new Operation("Previous Operation");
+        Operation taskOperation = new Operation("Task Operation");
+        Task task = new Task("Test task", taskOperation);
+
+        OperationContext.set(previousOperation);
+
+        WrappedRunnable wrappedRunnable = new WrappedRunnable(
+                () -> {
+                    assertEquals(
+                            Optional.of(taskOperation),
+                            OperationContext.current()
+                    );
+
+                    throw new RuntimeException("Original failure");
+                },
+                task
+        );
+
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                wrappedRunnable::run
+        );
+
+        assertEquals("Original failure", exception.getMessage());
+
+        assertEquals(
+                Optional.of(previousOperation),
+                OperationContext.current()
+        );
+
+        OperationContext.clear();
     }
 }

@@ -34,6 +34,9 @@ GhostWork introduces explicit domain objects for operations and tasks, stores th
 * Deterministic time-based testing through `Clock`
 * Preservation of original task failures
 * Immutable lifecycle snapshots
+* Event listener API
+* Periodic monitoring
+* Read-only public views
 
 ## Requirements
 
@@ -167,8 +170,8 @@ It currently supports two detection modes.
 A ghost task is a task that remains in the `RUNNING` state after its parent operation has finished.
 
 ```java
-List<Task> ghostTasks =
-        detector.detectGhostTasks(operation.getId());
+List<TaskView> ghostTasks =
+        ghostWork.ghostTasks(operation.id());
 ```
 
 #### Stuck task detection
@@ -176,9 +179,9 @@ List<Task> ghostTasks =
 A stuck task is a running task whose execution duration is strictly greater than a configured threshold.
 
 ```java
-List<Task> stuckTasks =
-        detector.detectStuckTasks(
-                operation.getId(),
+List<TaskView> stuckTasks =
+        ghostWork.stuckTasks(
+                operation.id(),
                 Duration.ofSeconds(30)
         );
 ```
@@ -271,65 +274,47 @@ Clock.fixed(
 ## Usage Example
 
 ```java
-import io.nikitoo0os.Detector;
-import io.nikitoo0os.TrackingExecutorService;
-import io.nikitoo0os.entity.Operation;
-import io.nikitoo0os.entity.Registry;
-import io.nikitoo0os.factory.TrackingCallableFactory;
-import io.nikitoo0os.factory.TrackingRunnableFactory;
+import io.nikitoo0os.GhostWork;
+import io.nikitoo0os.OperationView;
+import io.nikitoo0os.TaskView;
 
-import java.time.Clock;
-import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class Example {
 
     public static void main(String[] args) throws Exception {
-        Registry registry = new Registry();
-        Clock clock = Clock.systemUTC();
+        GhostWork ghostWork =
+                GhostWork.create(Executors.newFixedThreadPool(4));
 
-        Operation operation = new Operation("Data import");
-        registry.registerOperation(operation);
-
-        TrackingRunnableFactory runnableFactory =
-                new TrackingRunnableFactory(registry, clock);
-
-        TrackingCallableFactory callableFactory =
-                new TrackingCallableFactory(registry, clock);
-
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-
-        TrackingExecutorService trackingExecutor =
-                new TrackingExecutorService(
-                        executor,
-                        runnableFactory,
-                        callableFactory
-                );
-
-        trackingExecutor.submit(
-                operation,
-                "Import customers",
+        ghostWork.addEventListener(event -> {
+            System.out.println(event.type());
+        });
+        
+        ghostWork.call(
+                "Data import",
                 () -> {
-                    // asynchronous work
+                    ghostWork.executor()
+                            .submit(
+                                    "Import customers",
+                                    () -> {
+                                        // asynchronous work
+                                    }
+                            )
+                            .get(1, TimeUnit.SECONDS);
+
+                    return null;
                 }
         );
+        
+        OperationView operation = ghostWork.operations().getFirst();
+        List<TaskView> tasks = ghostWork.tasks(operation.id());
 
-        operation.complete();
+        System.out.println(operation.state());
+        System.out.println(tasks.getFirst().state());
 
-        Detector detector = new Detector(registry, clock);
-
-        List<?> ghostTasks =
-                detector.detectGhostTasks(operation.getId());
-
-        List<?> stuckTasks =
-                detector.detectStuckTasks(
-                        operation.getId(),
-                        Duration.ofSeconds(30)
-                );
-
-        executor.shutdown();
+        ghostWork.executor().shutdown();
     }
 }
 ```
@@ -455,10 +440,9 @@ The current implementation does not yet provide:
 * persistent storage;
 * distributed task tracking;
 * metrics export;
-* automatic operation lifecycle orchestration;
-* cancellation tracking;
+* annotation-based operation lifecycle orchestration;
+* persistent storage;
 * scheduled task scanning;
-* event listeners;
 * integration with observability platforms;
 * a complete implementation of the `ExecutorService` interface.
 
@@ -476,10 +460,10 @@ The current implementation does not yet provide:
 * [x] Ghost task detection
 * [x] Long-running task detection
 * [x] Deterministic clock injection
-* [ ] Operation lifecycle orchestration
-* [ ] Task cancellation tracking
-* [ ] Periodic detector execution
-* [ ] Event and notification API
+* [x] Operation lifecycle orchestration
+* [x] Task cancellation tracking
+* [x] Periodic detector execution
+* [x] Event listener API
 * [ ] Metrics integration
 * [ ] Logging integration
 * [ ] Complete ExecutorService decorator
