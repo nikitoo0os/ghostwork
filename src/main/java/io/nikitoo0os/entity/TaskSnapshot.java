@@ -23,11 +23,19 @@ public final class TaskSnapshot {
                 }
             }
 
-            if (state == TaskState.COMPLETED || state == TaskState.FAILED) {
+            if (state == TaskState.COMPLETED || state == TaskState.FAILED ||  state == TaskState.CANCELLED) {
                 if (startedAt == null || finishedAt == null) {
                     throw new IllegalStateException("A finished task must have both start and finish times.");
                 }
             }
+
+            if(state == TaskState.REJECTED){
+                if (startedAt != null || finishedAt == null) {
+                    throw new IllegalStateException(
+                            "Rejected task must have finish time but no start time."
+                    );
+                }
+            }   
 
 
             this.startedAt = startedAt;

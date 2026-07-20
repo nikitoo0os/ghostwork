@@ -1,5 +1,6 @@
 package io.nikitoo0os;
 
+import io.nikitoo0os.context.OperationContext;
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.factory.TrackingCallableFactory;
 import io.nikitoo0os.factory.TrackingRunnableFactory;
@@ -13,7 +14,7 @@ public final class TrackingExecutorService {
     private final TrackingRunnableFactory runnableFactory;
     private final TrackingCallableFactory callableFactory;
 
-    public TrackingExecutorService(ExecutorService delegate, TrackingRunnableFactory runnableFactory, TrackingCallableFactory callableFactory){
+    public TrackingExecutorService(ExecutorService delegate, TrackingRunnableFactory runnableFactory, TrackingCallableFactory callableFactory) {
         this.delegate = delegate;
         this.runnableFactory = runnableFactory;
         this.callableFactory = callableFactory;
@@ -39,5 +40,29 @@ public final class TrackingExecutorService {
                 callableFactory.wrap(operation, taskName, callable);
 
         return delegate.submit(trackingCallable);
+    }
+
+    public Future<?> submit(
+            String taskName,
+            Runnable runnable
+    ) {
+        Operation operation = OperationContext.current()
+                .orElseThrow(() -> new IllegalStateException(
+                        "OperationContext is empty"
+                ));
+
+        return submit(operation, taskName, runnable);
+    }
+
+    public <T> Future<T> submit(
+            String taskName,
+            Callable<T> callable
+    ) {
+        Operation operation = OperationContext.current()
+                .orElseThrow(() -> new IllegalStateException(
+                        "OperationContext is empty"
+                ));
+
+        return submit(operation, taskName, callable);
     }
 }

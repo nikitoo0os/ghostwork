@@ -195,5 +195,213 @@ public class TaskTest {
         assertNotNull(task.getStartedAt());
         assertNotNull(task.getFinishedAt());
     }
+
+
+    @Test
+    void createdTaskShouldNotGoToCancelledState() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.cancel(Instant.now(clock))
+        );
+    }
+
+    @Test
+    void runningTaskShouldGoToCancelledState() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.plusSeconds(10);
+
+        task.start(startedAt);
+        task.cancel(finishedAt);
+
+        assertEquals(TaskState.CANCELLED, task.getState());
+        assertEquals(startedAt, task.getStartedAt());
+        assertEquals(finishedAt, task.getFinishedAt());
+        assertTrue(task.isFinished());
+    }
+
+    @Test
+    void taskShouldNotCancelBeforeItStarted() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.minusSeconds(1);
+
+        task.start(startedAt);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> task.cancel(finishedAt)
+        );
+    }
+
+    @Test
+    void taskShouldRejectNullCancellationTime() {
+        task.start(Instant.now(clock));
+
+        assertThrows(
+                NullPointerException.class,
+                () -> task.cancel(null)
+        );
+    }
+
+    @Test
+    void createdTaskShouldGoToRejectedState() {
+        Instant rejectedAt = Instant.now(clock);
+
+        task.reject(rejectedAt);
+
+        assertEquals(TaskState.REJECTED, task.getState());
+        assertNull(task.getStartedAt());
+        assertEquals(rejectedAt, task.getFinishedAt());
+        assertTrue(task.isFinished());
+    }
+
+    @Test
+    void runningTaskShouldNotGoToRejectedState() {
+        task.start(Instant.now(clock));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.reject(Instant.now(clock))
+        );
+    }
+
+    @Test
+    void completedTaskShouldNotGoToRejectedState() {
+        Instant startedAt = Instant.now(clock);
+        Instant finishedAt = startedAt.plusSeconds(10);
+
+        task.start(startedAt);
+        task.complete(finishedAt);
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.reject(finishedAt.plusSeconds(1))
+        );
+    }
+
+    @Test
+    void rejectedTaskShouldNotStart() {
+        task.reject(Instant.now(clock));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> task.start(Instant.now(clock))
+        );
+    }
+
+    @Test
+    void taskShouldRejectNullRejectionTime() {
+        assertThrows(
+                NullPointerException.class,
+                () -> task.reject(null)
+        );
+    }
+
+    @Test
+    void concurrentFinishShouldAllowOnlyOneSuccessfulTransition()
+            throws InterruptedException {
+        task.start(Instant.now(clock));
+
+        AtomicInteger successCount = new AtomicInteger();
+
+        Thread t1 = new Thread(() -> {
+            try {
+                task.complete(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread finished the task first.
+            }
+        });
+
+        Thread t2 = new Thread(() -> {
+            try {
+                task.fail(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread finished the task first.
+            }
+        });
+
+        Thread t3 = new Thread(() -> {
+            try {
+                task.cancel(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread finished the task first.
+            }
+        });
+
+        t1.start();
+        t2.start();
+        t3.start();
+
+        t1.join();
+        t2.join();
+        t3.join();
+
+        assertEquals(1, successCount.get());
+
+        TaskState taskState = task.getState();
+
+        assertTrue(
+                taskState == TaskState.COMPLETED
+                        || taskState == TaskState.FAILED
+                        || taskState == TaskState.CANCELLED
+        );
+
+        assertNotNull(task.getStartedAt());
+        assertNotNull(task.getFinishedAt());
+        assertTrue(task.isFinished());
+    }
+
+    @Test
+    void concurrentStartAndRejectShouldAllowOnlyOneSuccessfulTransition()
+            throws InterruptedException {
+        AtomicInteger successCount = new AtomicInteger();
+
+        Thread t1 = new Thread(() -> {
+            try {
+                task.start(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread moved the task out of CREATED first.
+            }
+        });
+
+        Thread t2 = new Thread(() -> {
+            try {
+                task.reject(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread moved the task out of CREATED first.
+            }
+        });
+
+        t1.start();
+        t2.start();
+
+        t1.join();
+        t2.join();
+
+        assertEquals(1, successCount.get());
+
+        TaskState taskState = task.getState();
+
+        assertTrue(
+                taskState == TaskState.RUNNING
+                        || taskState == TaskState.REJECTED
+        );
+
+        if (taskState == TaskState.RUNNING) {
+            assertNotNull(task.getStartedAt());
+            assertNull(task.getFinishedAt());
+            assertFalse(task.isFinished());
+        }
+
+        if (taskState == TaskState.REJECTED) {
+            assertNull(task.getStartedAt());
+            assertNotNull(task.getFinishedAt());
+            assertTrue(task.isFinished());
+        }
+    }
 }
 

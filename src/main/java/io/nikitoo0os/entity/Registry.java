@@ -43,7 +43,7 @@ public final class Registry {
             UUID operationId = task.getParentOperation().getId();
 
             Queue<Task> operationTask =
-                    operationTasks.computeIfAbsent(operationId, _ -> new ConcurrentLinkedQueue<>());
+                    operationTasks.computeIfAbsent(operationId, ignored -> new ConcurrentLinkedQueue<>());
 
             operationTask.add(task);
         } else {

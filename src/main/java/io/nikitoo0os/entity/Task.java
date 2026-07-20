@@ -68,6 +68,45 @@ public final class Task {
         finishState(finishedAt, TaskState.FAILED);
     }
 
+    public void cancel(Instant finishedAt) {
+        finishState(finishedAt, TaskState.CANCELLED);
+    }
+
+    public void reject(Instant finishedAt) {
+        Objects.requireNonNull(
+                finishedAt,
+                "Finished time must not be null"
+        );
+
+        TaskSnapshot currentSnapshot = taskSnapshot.get();
+
+        if (currentSnapshot.getState() != TaskState.CREATED) {
+            throw new IllegalStateException(
+                    "The task cannot switch from state " +
+                            currentSnapshot.getState() +
+                            " to state " +
+                            TaskState.REJECTED
+            );
+        }
+
+        TaskSnapshot newSnapshot = new TaskSnapshot(
+                null,
+                finishedAt,
+                TaskState.REJECTED
+        );
+
+        boolean changed = taskSnapshot.compareAndSet(
+                currentSnapshot,
+                newSnapshot
+        );
+
+        if (!changed) {
+            throw new IllegalStateException(
+                    "The other thread has already started or rejected the task"
+            );
+        }
+    }
+
     private void finishState(
             Instant finishedAt,
             TaskState targetState
@@ -162,7 +201,9 @@ public final class Task {
     public boolean isFinished() {
         TaskState state = taskSnapshot.get().getState();
         return state == TaskState.COMPLETED ||
-                state == TaskState.FAILED;
+                state == TaskState.FAILED ||
+                state == TaskState.CANCELLED ||
+                state == TaskState.REJECTED;
     }
 
     public boolean isRunningLongerThan(

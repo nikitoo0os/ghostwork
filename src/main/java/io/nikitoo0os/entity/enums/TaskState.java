@@ -4,5 +4,7 @@ public enum TaskState {
     CREATED,
     RUNNING,
     COMPLETED,
-    FAILED
+    FAILED,
+    REJECTED,
+    CANCELLED
 }

@@ -61,7 +61,7 @@ public class OperationTest {
             try {
                 operation.complete();
                 successCount.incrementAndGet();
-            } catch (IllegalStateException _) {
+            } catch (IllegalStateException ignored) {
                 // Another thread completed the operation first.
             }
         });
@@ -70,7 +70,7 @@ public class OperationTest {
             try {
                 operation.timeout();
                 successCount.incrementAndGet();
-            } catch (IllegalStateException _) {
+            } catch (IllegalStateException ignored) {
                 // Another thread completed the operation first.
             }
         });

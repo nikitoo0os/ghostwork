@@ -1,4 +1,5 @@
 import io.nikitoo0os.TrackingExecutorService;
+import io.nikitoo0os.context.OperationContext;
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
@@ -53,6 +54,7 @@ public class TrackingExecutorTest {
 
     @AfterEach
     void tearDown() {
+        OperationContext.clear();
         executor.shutdownNow();
     }
 
@@ -185,6 +187,88 @@ public class TrackingExecutorTest {
         assertInstanceOf(
                 IllegalStateException.class,
                 suppressed[0]
+        );
+    }
+
+    @Test
+    void contextSubmitRunnableShouldTrackTaskForCurrentOperation()
+            throws Exception {
+        OperationContext.set(operation);
+
+        Future<?> future = trackingExecutor.submit(
+                "ContextTask",
+                () -> {
+                }
+        );
+
+        future.get(1, TimeUnit.SECONDS);
+
+        List<Task> tasks =
+                registry.findTasksByOperation(operation.getId());
+
+        assertEquals(1, tasks.size());
+
+        Task task = tasks.getFirst();
+
+        assertEquals(TaskState.COMPLETED, task.getState());
+        assertEquals(Instant.now(clock), task.getStartedAt());
+        assertEquals(Instant.now(clock), task.getFinishedAt());
+    }
+
+    @Test
+    void contextSubmitCallableShouldTrackTaskForCurrentOperation()
+            throws Exception {
+        OperationContext.set(operation);
+
+        Future<String> future = trackingExecutor.submit(
+                "ContextCallableTask",
+                () -> "done"
+        );
+
+        assertEquals("done", future.get(1, TimeUnit.SECONDS));
+
+        List<Task> tasks =
+                registry.findTasksByOperation(operation.getId());
+
+        assertEquals(1, tasks.size());
+
+        Task task = tasks.getFirst();
+
+        assertEquals(TaskState.COMPLETED, task.getState());
+        assertEquals(Instant.now(clock), task.getStartedAt());
+        assertEquals(Instant.now(clock), task.getFinishedAt());
+    }
+
+    @Test
+    void contextSubmitRunnableShouldThrowWhenOperationContextIsEmpty() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> trackingExecutor.submit(
+                        "ContextTask",
+                        () -> {
+                        }
+                )
+        );
+
+        assertEquals(
+                List.of(),
+                registry.findTasksByOperation(operation.getId())
+        );
+    }
+
+    @Test
+    void contextSubmitCallableShouldThrowWhenOperationContextIsEmpty() {
+        assertThrows(
+                IllegalStateException.class,
+                () -> trackingExecutor.submit(
+                        "ContextCallableTask",
+                        () -> "done"
+                )
+        );
+
+        assertEquals(
+                List.of(),
+                registry.findTasksByOperation(operation.getId())
         );
     }
 }
