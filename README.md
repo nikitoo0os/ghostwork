@@ -5,7 +5,46 @@ GhostWork is a lightweight Java library for tracking asynchronous operations and
 The project is designed as a small, explicit concurrency-tracking layer around Java tasks and executors. It records task lifecycle transitions, groups tasks by operation, and provides deterministic detection of ghost and long-running tasks.
 
 > Status: active development
-> Current version: `0.1.0-SNAPSHOT`
+> Current version: `0.1.0`
+
+## Maven
+
+After publication to Maven Central, GhostWork can be added as:
+
+```xml
+<dependency>
+    <groupId>io.github.nikitoo0os</groupId>
+    <artifactId>ghostwork</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+Spring AOP support is available through optional dependencies. In Spring Boot applications, add:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId>
+</dependency>
+```
+
+## Publishing
+
+Release publication uses Sonatype Central Portal.
+
+Required local setup:
+
+* verified Central Portal namespace: `io.github.nikitoo0os`
+* Central Portal token in Maven `settings.xml` under server id `central`
+* local GPG key available to `gpg`
+
+Release command:
+
+```powershell
+mvn -P release clean deploy
+```
+
+The release profile attaches source and Javadoc jars, signs artifacts with GPG, and uploads the deployment bundle to Central Portal without auto-publishing.
 
 ## Problem
 
@@ -386,7 +425,7 @@ mvn clean package
 The generated JAR will be available in:
 
 ```text
-target/ghostwork-0.1.0-SNAPSHOT.jar
+target/ghostwork-0.1.0.jar
 ```
 
 ## Testing
