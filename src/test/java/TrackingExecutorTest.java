@@ -3,6 +3,7 @@ import io.nikitoo0os.context.OperationContext;
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
+import io.nikitoo0os.entity.enums.OperationState;
 import io.nikitoo0os.entity.enums.TaskState;
 import io.nikitoo0os.event.GhostWorkEvent;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
@@ -55,7 +56,9 @@ public class TrackingExecutorTest {
                 executor,
                 new TrackingRunnableFactory(registry, clock, eventPublisher),
                 new TrackingCallableFactory(registry, clock, eventPublisher),
-                clock
+                clock,
+                eventPublisher,
+                registry
         );
     }
 
@@ -247,36 +250,54 @@ public class TrackingExecutorTest {
     }
 
     @Test
-    void contextSubmitRunnableShouldThrowWhenOperationContextIsEmpty() {
-        assertThrows(
-                IllegalStateException.class,
-                () -> trackingExecutor.submit(
-                        "ContextTask",
-                        () -> {
-                        }
-                )
+    void contextSubmitRunnableShouldCreateImplicitOperationWhenOperationContextIsEmpty()
+            throws Exception {
+        Future<?> future = trackingExecutor.submit(
+                "ContextTask",
+                () -> {
+                }
         );
 
-        assertEquals(
-                List.of(),
-                registry.findTasksByOperation(operation.getId())
-        );
+        future.get(1, TimeUnit.SECONDS);
+
+        Operation implicitOperation = registry.findOperations()
+                .stream()
+                .filter(operation -> operation.getName().equals("Implicit:ContextTask"))
+                .findFirst()
+                .orElseThrow();
+
+        List<Task> tasks =
+                registry.findTasksByOperation(implicitOperation.getId());
+
+        assertEquals(OperationState.COMPLETED, implicitOperation.getState());
+        assertEquals(1, tasks.size());
+        assertEquals("ContextTask", tasks.getFirst().getName());
+        assertEquals(TaskState.COMPLETED, tasks.getFirst().getState());
     }
 
     @Test
-    void contextSubmitCallableShouldThrowWhenOperationContextIsEmpty() {
-        assertThrows(
-                IllegalStateException.class,
-                () -> trackingExecutor.submit(
-                        "ContextCallableTask",
-                        () -> "done"
-                )
+    void contextSubmitCallableShouldCreateImplicitOperationWhenOperationContextIsEmpty()
+            throws Exception {
+        Future<String> future = trackingExecutor.submit(
+                "ContextCallableTask",
+                () -> "done"
         );
 
-        assertEquals(
-                List.of(),
-                registry.findTasksByOperation(operation.getId())
-        );
+        assertEquals("done", future.get(1, TimeUnit.SECONDS));
+
+        Operation implicitOperation = registry.findOperations()
+                .stream()
+                .filter(operation -> operation.getName().equals("Implicit:ContextCallableTask"))
+                .findFirst()
+                .orElseThrow();
+
+        List<Task> tasks =
+                registry.findTasksByOperation(implicitOperation.getId());
+
+        assertEquals(OperationState.COMPLETED, implicitOperation.getState());
+        assertEquals(1, tasks.size());
+        assertEquals("ContextCallableTask", tasks.getFirst().getName());
+        assertEquals(TaskState.COMPLETED, tasks.getFirst().getState());
     }
 
     @Test
@@ -682,5 +703,139 @@ public class TrackingExecutorTest {
         assertEquals("RejectedCallableTask", event.task().name());
         assertEquals(TaskState.REJECTED, event.task().state());
         assertNull(event.failure());
+    }
+    @Test
+    void cancelledQueuedRunnableShouldMoveTaskToCancelledState()
+            throws Exception {
+        executor.shutdownNow();
+
+        executor = Executors.newSingleThreadExecutor();
+
+        trackingExecutor = new TrackingExecutorService(
+                executor,
+                new TrackingRunnableFactory(registry, clock, eventPublisher),
+                new TrackingCallableFactory(registry, clock, eventPublisher),
+                clock,
+                eventPublisher
+        );
+
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+
+        trackingExecutor.submit(
+                operation,
+                "Blocker",
+                () -> {
+                    blockerStarted.countDown();
+                    try {
+                        releaseBlocker.await(1, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+        );
+
+        assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "QueuedTask",
+                () -> {
+                }
+        );
+
+        assertTrue(future.cancel(false));
+
+        releaseBlocker.countDown();
+
+        Task task = registry.findTasksByOperation(operation.getId())
+                .stream()
+                .filter(candidate -> candidate.getName().equals("QueuedTask"))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(TaskState.CANCELLED, task.getState());
+        assertNull(task.getStartedAt());
+        assertEquals(Instant.now(clock), task.getFinishedAt());
+        assertTrue(task.isFinished());
+    }
+
+    @Test
+    void cancellingQueuedRunnableShouldPublishTaskCancelledEvent()
+            throws Exception {
+        List<GhostWorkEvent> events = new ArrayList<>();
+
+        eventPublisher.addListener(events::add);
+
+        executor.shutdownNow();
+
+        executor = Executors.newSingleThreadExecutor();
+
+        trackingExecutor = new TrackingExecutorService(
+                executor,
+                new TrackingRunnableFactory(registry, clock, eventPublisher),
+                new TrackingCallableFactory(registry, clock, eventPublisher),
+                clock,
+                eventPublisher
+        );
+
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+
+        trackingExecutor.submit(
+                operation,
+                "Blocker",
+                () -> {
+                    blockerStarted.countDown();
+                    try {
+                        releaseBlocker.await(1, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+        );
+
+        assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "QueuedTask",
+                () -> {
+                }
+        );
+
+        assertTrue(future.cancel(false));
+
+        releaseBlocker.countDown();
+
+        GhostWorkEvent cancelled = events.stream()
+                .filter(event -> event.type() == GhostWorkEventType.TASK_CANCELLED)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("TestOperation", cancelled.operation().name());
+        assertEquals("QueuedTask", cancelled.task().name());
+        assertEquals(TaskState.CANCELLED, cancelled.task().state());
+        assertNull(cancelled.failure());
+    }
+
+    @Test
+    void completedTaskShouldNotBeCancelledThroughFuture()
+            throws Exception {
+        Future<?> future = trackingExecutor.submit(
+                operation,
+                "CompletedTask",
+                () -> {
+                }
+        );
+
+        future.get(1, TimeUnit.SECONDS);
+
+        assertFalse(future.cancel(false));
+
+        Task task = registry.findTasksByOperation(operation.getId())
+                .getFirst();
+
+        assertEquals(TaskState.COMPLETED, task.getState());
     }
 }

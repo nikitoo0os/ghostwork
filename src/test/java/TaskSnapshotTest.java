@@ -81,8 +81,25 @@ public class TaskSnapshotTest {
     }
 
     @Test
-    void cancelledSnapshotShouldHaveStartAndFinishTimes() {
-        assertFinishedAfterRunSnapshot(TaskState.CANCELLED);
+    void cancelledSnapshotShouldHaveFinishTimeAndOptionalStartTime() {
+        TaskSnapshot cancelledBeforeStart =
+                new TaskSnapshot(null, FINISHED_AT, TaskState.CANCELLED);
+
+        assertEquals(TaskState.CANCELLED, cancelledBeforeStart.getState());
+        assertNull(cancelledBeforeStart.getStartedAt());
+        assertEquals(FINISHED_AT, cancelledBeforeStart.getFinishedAt());
+
+        TaskSnapshot cancelledAfterStart =
+                new TaskSnapshot(STARTED_AT, FINISHED_AT, TaskState.CANCELLED);
+
+        assertEquals(TaskState.CANCELLED, cancelledAfterStart.getState());
+        assertEquals(STARTED_AT, cancelledAfterStart.getStartedAt());
+        assertEquals(FINISHED_AT, cancelledAfterStart.getFinishedAt());
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> new TaskSnapshot(STARTED_AT, null, TaskState.CANCELLED)
+        );
     }
 
     @Test

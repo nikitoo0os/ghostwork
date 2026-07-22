@@ -198,11 +198,15 @@ public class TaskTest {
 
 
     @Test
-    void createdTaskShouldNotGoToCancelledState() {
-        assertThrows(
-                IllegalStateException.class,
-                () -> task.cancel(Instant.now(clock))
-        );
+    void createdTaskShouldGoToCancelledState() {
+        Instant cancelledAt = Instant.now(clock);
+
+        task.cancel(cancelledAt);
+
+        assertEquals(TaskState.CANCELLED, task.getState());
+        assertNull(task.getStartedAt());
+        assertEquals(cancelledAt, task.getFinishedAt());
+        assertTrue(task.isFinished());
     }
 
     @Test
@@ -402,6 +406,66 @@ public class TaskTest {
             assertNotNull(task.getFinishedAt());
             assertTrue(task.isFinished());
         }
+    }
+
+    @Test
+    void concurrentStartAndCancelShouldLeaveTaskInValidState()
+            throws InterruptedException {
+        AtomicInteger successCount = new AtomicInteger();
+
+        Thread t1 = new Thread(() -> {
+            try {
+                task.start(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread cancelled the task before it started.
+            }
+        });
+
+        Thread t2 = new Thread(() -> {
+            try {
+                task.cancel(Instant.now(clock));
+                successCount.incrementAndGet();
+            } catch (IllegalStateException ignored) {
+                // Another thread moved the task to an incompatible state first.
+            }
+        });
+
+        t1.start();
+        t2.start();
+
+        t1.join();
+        t2.join();
+
+        assertTrue(
+                successCount.get() == 1 || successCount.get() == 2
+        );
+
+        TaskState taskState = task.getState();
+
+        assertTrue(
+                taskState == TaskState.RUNNING
+                        || taskState == TaskState.CANCELLED
+        );
+
+        if (taskState == TaskState.RUNNING) {
+            assertEquals(1, successCount.get());
+            assertNotNull(task.getStartedAt());
+            assertNull(task.getFinishedAt());
+            assertFalse(task.isFinished());
+        }
+
+        if (taskState == TaskState.CANCELLED) {
+            assertNotNull(task.getFinishedAt());
+            assertTrue(task.isFinished());
+
+            if (task.getStartedAt() == null) {
+                assertEquals(1, successCount.get());
+            } else {
+                assertEquals(2, successCount.get());
+            }
+        }
+
     }
 }
 

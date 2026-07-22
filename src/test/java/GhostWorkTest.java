@@ -14,18 +14,10 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class GhostWorkTest {
 
@@ -333,5 +325,322 @@ public class GhostWorkTest {
         assertEquals(GhostWorkEventType.TASK_STARTED, events.get(0).type());
         assertEquals(GhostWorkEventType.TASK_COMPLETED, events.get(1).type());
         assertEquals(GhostWorkEventType.OPERATION_COMPLETED, events.get(2).type());
+    }
+
+    @Test
+    void cancelledTaskShouldBeVisibleThroughPublicFacade()
+            throws Exception {
+        ExecutorService singleThreadExecutor =
+                Executors.newSingleThreadExecutor();
+
+        GhostWork ghostWork = GhostWork.create(singleThreadExecutor);
+
+        try {
+            CountDownLatch blockerStarted = new CountDownLatch(1);
+            CountDownLatch releaseBlocker = new CountDownLatch(1);
+            AtomicReference<Future<?>> queuedFuture =
+                    new AtomicReference<>();
+
+            ghostWork.run(
+                    "CancelOperation",
+                    () -> {
+                        ghostWork.executor().submit(
+                                "Blocker",
+                                () -> {
+                                    blockerStarted.countDown();
+
+                                    try {
+                                        releaseBlocker.await(1, TimeUnit.SECONDS);
+                                    } catch (InterruptedException exception) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
+                        );
+
+                        try {
+                            assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException(exception);
+                        }
+
+                        queuedFuture.set(
+                                ghostWork.executor().submit(
+                                        "QueuedTask",
+                                        () -> {
+                                        }
+                                )
+                        );
+
+                        assertTrue(queuedFuture.get().cancel(false));
+                        releaseBlocker.countDown();
+                    }
+            );
+
+            OperationView operation = ghostWork.operations()
+                    .stream()
+                    .filter(candidate -> candidate.name().equals("CancelOperation"))
+                    .findFirst()
+                    .orElseThrow();
+
+            TaskView cancelledTask = ghostWork.tasks(operation.id())
+                    .stream()
+                    .filter(task -> task.name().equals("QueuedTask"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals(TaskState.CANCELLED, cancelledTask.state());
+            assertNull(cancelledTask.startedAt());
+            assertNotNull(cancelledTask.finishedAt());
+        } finally {
+            ghostWork.executor().shutdownNow();
+        }
+    }
+
+    @Test
+    void cancellingTaskShouldPublishTaskCancelledEventThroughPublicFacade()
+            throws Exception {
+        ExecutorService singleThreadExecutor =
+                Executors.newSingleThreadExecutor();
+
+        GhostWork ghostWork = GhostWork.create(singleThreadExecutor);
+
+        try {
+            List<GhostWorkEvent> events = new ArrayList<>();
+
+            ghostWork.addEventListener(events::add);
+
+            CountDownLatch blockerStarted = new CountDownLatch(1);
+            CountDownLatch releaseBlocker = new CountDownLatch(1);
+
+            ghostWork.run(
+                    "CancelOperation",
+                    () -> {
+                        ghostWork.executor().submit(
+                                "Blocker",
+                                () -> {
+                                    blockerStarted.countDown();
+
+                                    try {
+                                        releaseBlocker.await(1, TimeUnit.SECONDS);
+                                    } catch (InterruptedException exception) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
+                        );
+
+                        try {
+                            assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException(exception);
+                        }
+
+                        Future<?> queuedFuture = ghostWork.executor().submit(
+                                "QueuedTask",
+                                () -> {
+                                }
+                        );
+
+                        assertTrue(queuedFuture.cancel(false));
+                        releaseBlocker.countDown();
+                    }
+            );
+
+            GhostWorkEvent cancelled = events.stream()
+                    .filter(event -> event.type() == GhostWorkEventType.TASK_CANCELLED)
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals("CancelOperation", cancelled.operation().name());
+            assertEquals("QueuedTask", cancelled.task().name());
+            assertEquals(TaskState.CANCELLED, cancelled.task().state());
+            assertNull(cancelled.task().startedAt());
+            assertNotNull(cancelled.task().finishedAt());
+            assertNull(cancelled.failure());
+        } finally {
+            ghostWork.executor().shutdownNow();
+        }
+    }
+    @Test
+    void reportShouldIncludeCancelledTaskButExcludeItFromGhostAndStuckTasks()
+            throws Exception {
+        ExecutorService singleThreadExecutor =
+                Executors.newSingleThreadExecutor();
+
+        GhostWork ghostWork = GhostWork.create(singleThreadExecutor);
+
+        try {
+            CountDownLatch blockerStarted = new CountDownLatch(1);
+            CountDownLatch releaseBlocker = new CountDownLatch(1);
+            AtomicReference<Future<?>> blockerFuture =
+                    new AtomicReference<>();
+
+            ghostWork.run(
+                    "CancelReportOperation",
+                    () -> {
+                        blockerFuture.set(
+                                ghostWork.executor().submit(
+                                        "Blocker",
+                                        () -> {
+                                            blockerStarted.countDown();
+
+                                            try {
+                                                releaseBlocker.await(1, TimeUnit.SECONDS);
+                                            } catch (InterruptedException exception) {
+                                                Thread.currentThread().interrupt();
+                                            }
+                                        }
+                                )
+                        );
+
+                        try {
+                            assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException(exception);
+                        }
+
+                        Future<?> queuedFuture = ghostWork.executor().submit(
+                                "QueuedTask",
+                                () -> {
+                                }
+                        );
+
+                        assertTrue(queuedFuture.cancel(false));
+                        releaseBlocker.countDown();
+                    }
+            );
+
+            blockerFuture.get().get(1, TimeUnit.SECONDS);
+
+            GhostWorkReport report =
+                    ghostWork.report(Duration.ofMillis(1));
+
+            TaskView cancelledTask = report.tasks()
+                    .stream()
+                    .filter(task -> task.name().equals("QueuedTask"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals(TaskState.CANCELLED, cancelledTask.state());
+            assertTrue(report.ghostTasks().isEmpty());
+            assertTrue(report.stuckTasks().isEmpty());
+        } finally {
+            ghostWork.executor().shutdownNow();
+        }
+    }
+    @Test
+    void submitRunnableWithoutActiveOperationShouldCreateImplicitOperation()
+            throws Exception {
+        ghostWork.executor()
+                .submit(
+                        "StandaloneTask",
+                        () -> {
+                        }
+                )
+                .get(1, TimeUnit.SECONDS);
+
+        OperationView operation = ghostWork.operations()
+                .stream()
+                .filter(candidate -> candidate.name().equals("Implicit:StandaloneTask"))
+                .findFirst()
+                .orElseThrow();
+
+        List<TaskView> tasks = ghostWork.tasks(operation.id());
+
+        assertEquals(OperationState.COMPLETED, operation.state());
+        assertEquals(1, tasks.size());
+        assertEquals("StandaloneTask", tasks.getFirst().name());
+        assertEquals(TaskState.COMPLETED, tasks.getFirst().state());
+    }
+
+    @Test
+    void submitCallableWithoutActiveOperationShouldCreateImplicitOperation()
+            throws Exception {
+        String result = ghostWork.executor()
+                .submit(
+                        "StandaloneCallable",
+                        () -> "done"
+                )
+                .get(1, TimeUnit.SECONDS);
+
+        assertEquals("done", result);
+
+        OperationView operation = ghostWork.operations()
+                .stream()
+                .filter(candidate -> candidate.name().equals("Implicit:StandaloneCallable"))
+                .findFirst()
+                .orElseThrow();
+
+        List<TaskView> tasks = ghostWork.tasks(operation.id());
+
+        assertEquals(OperationState.COMPLETED, operation.state());
+        assertEquals(1, tasks.size());
+        assertEquals("StandaloneCallable", tasks.getFirst().name());
+        assertEquals(TaskState.COMPLETED, tasks.getFirst().state());
+    }
+
+    @Test
+    void failedImplicitRunnableShouldFailImplicitOperation()
+            throws Exception {
+        Future<?> future = ghostWork.executor()
+                .submit(
+                        "FailingStandaloneTask",
+                        () -> {
+                            throw new RuntimeException("boom");
+                        }
+                );
+
+        ExecutionException exception = assertThrows(
+                ExecutionException.class,
+                () -> future.get(1, TimeUnit.SECONDS)
+        );
+
+        assertEquals("boom", exception.getCause().getMessage());
+
+        OperationView operation = ghostWork.operations()
+                .stream()
+                .filter(candidate -> candidate.name().equals("Implicit:FailingStandaloneTask"))
+                .findFirst()
+                .orElseThrow();
+
+        List<TaskView> tasks = ghostWork.tasks(operation.id());
+
+        assertEquals(OperationState.FAILED, operation.state());
+        assertEquals(1, tasks.size());
+        assertEquals("FailingStandaloneTask", tasks.getFirst().name());
+        assertEquals(TaskState.FAILED, tasks.getFirst().state());
+    }
+    @Test
+    void implicitRunnableShouldPublishTaskAndOperationEvents()
+            throws Exception {
+        List<GhostWorkEvent> events = new ArrayList<>();
+
+        ghostWork.addEventListener(events::add);
+
+        ghostWork.executor()
+                .submit(
+                        "StandaloneTask",
+                        () -> {
+                        }
+                )
+                .get(1, TimeUnit.SECONDS);
+
+        assertEquals(3, events.size());
+
+        assertEquals(GhostWorkEventType.TASK_STARTED, events.get(0).type());
+        assertEquals("Implicit:StandaloneTask", events.get(0).operation().name());
+        assertEquals("StandaloneTask", events.get(0).task().name());
+        assertEquals(TaskState.RUNNING, events.get(0).task().state());
+
+        assertEquals(GhostWorkEventType.TASK_COMPLETED, events.get(1).type());
+        assertEquals("Implicit:StandaloneTask", events.get(1).operation().name());
+        assertEquals("StandaloneTask", events.get(1).task().name());
+        assertEquals(TaskState.COMPLETED, events.get(1).task().state());
+
+        assertEquals(GhostWorkEventType.OPERATION_COMPLETED, events.get(2).type());
+        assertEquals("Implicit:StandaloneTask", events.get(2).operation().name());
+        assertEquals(OperationState.COMPLETED, events.get(2).operation().state());
     }
 }

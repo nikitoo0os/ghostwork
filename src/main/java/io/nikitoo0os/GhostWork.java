@@ -58,7 +58,8 @@ public final class GhostWork {
                         runnableFactory,
                         callableFactory,
                         clock,
-                        eventPublisher
+                        eventPublisher,
+                        registry
                 );
 
 

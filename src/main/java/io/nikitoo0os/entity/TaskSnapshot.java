@@ -23,7 +23,7 @@ public final class TaskSnapshot {
                 }
             }
 
-            if (state == TaskState.COMPLETED || state == TaskState.FAILED ||  state == TaskState.CANCELLED) {
+            if (state == TaskState.COMPLETED || state == TaskState.FAILED) {
                 if (startedAt == null || finishedAt == null) {
                     throw new IllegalStateException("A finished task must have both start and finish times.");
                 }
@@ -35,7 +35,15 @@ public final class TaskSnapshot {
                             "Rejected task must have finish time but no start time."
                     );
                 }
-            }   
+            }
+
+            if(state == TaskState.CANCELLED){
+                if(finishedAt == null){
+                    throw new IllegalStateException(
+                            "Cancelled task must have finish time."
+                    );
+                }
+            }
 
 
             this.startedAt = startedAt;

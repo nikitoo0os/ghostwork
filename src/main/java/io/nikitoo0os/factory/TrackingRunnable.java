@@ -7,8 +7,16 @@ import java.time.Instant;
 
 public record TrackingRunnable(
         Task task,
-        WrappedRunnable runnable
+        WrappedRunnable runnable,
+        boolean implicitOperation
 ) {
+
+    public TrackingRunnable(
+            Task task,
+            WrappedRunnable runnable
+    ) {
+        this(task, runnable, false);
+    }
 
     public void reject(Instant rejectedAt) {
         task.reject(rejectedAt);

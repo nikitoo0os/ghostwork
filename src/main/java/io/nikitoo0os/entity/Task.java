@@ -69,7 +69,46 @@ public final class Task {
     }
 
     public void cancel(Instant finishedAt) {
-        finishState(finishedAt, TaskState.CANCELLED);
+        Objects.requireNonNull(
+                finishedAt,
+                "Finished time must not be null"
+        );
+
+        TaskSnapshot currentSnapshot = taskSnapshot.get();
+
+        if (currentSnapshot.getState() != TaskState.CREATED &&
+                currentSnapshot.getState() != TaskState.RUNNING) {
+            throw new IllegalStateException(
+                    "The task cannot switch from state " +
+                            currentSnapshot.getState() +
+                            " to state " +
+                            TaskState.CANCELLED
+            );
+        }
+
+        if (currentSnapshot.getStartedAt() != null &&
+                finishedAt.isBefore(currentSnapshot.getStartedAt())) {
+            throw new IllegalArgumentException(
+                    "Finished time cannot be before task start time"
+            );
+        }
+
+        TaskSnapshot newSnapshot = new TaskSnapshot(
+                currentSnapshot.getStartedAt(),
+                finishedAt,
+                TaskState.CANCELLED
+        );
+
+        boolean changed = taskSnapshot.compareAndSet(
+                currentSnapshot,
+                newSnapshot
+        );
+
+        if (!changed) {
+            throw new IllegalStateException(
+                    "The other thread has already changed the task state"
+            );
+        }
     }
 
     public void reject(Instant finishedAt) {
