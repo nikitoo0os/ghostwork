@@ -281,7 +281,6 @@ The final project should use a multi-module Maven structure:
 ghostwork
 ├── pom.xml
 ├── README.md
-├── SKILLS.md
 ├── LICENSE
 ├── CHANGELOG.md
 │
@@ -568,8 +567,8 @@ OperationHandle
 OperationScope
 OperationInfo
 TaskInfo
-GhostTaskInfo
-StuckTaskInfo
+GhostTaskDiagnostic
+StuckTaskDiagnostic
 DetectionService
 ```
 
@@ -1701,7 +1700,7 @@ Detection should return immutable DTOs.
 Example:
 
 ```java
-public record GhostTaskInfo(
+public record GhostTaskDiagnostic(
         UUID taskId,
         String taskName,
         UUID operationId,
