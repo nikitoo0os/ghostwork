@@ -1,15 +1,12 @@
 # GhostWork
 
-GhostWork is a lightweight Java library for tracking asynchronous operations and detecting tasks that continue running after their parent operation has already finished.
+GhostWork is a lightweight Java library for tracking asynchronous work submitted to executors.
 
-The project is designed as a small, explicit concurrency-tracking layer around Java tasks and executors. It records task lifecycle transitions, groups tasks by operation, and provides deterministic detection of ghost and long-running tasks.
+It groups tasks under logical operations, records task lifecycle transitions, detects tasks that keep running after their parent operation has finished, and exposes diagnostics through a small public API.
 
-> Status: active development
-> Current version: `0.1.0`
+## Installation
 
-## Maven
-
-After publication to Maven Central, GhostWork can be added as:
+GhostWork is available from Maven Central:
 
 ```xml
 <dependency>
@@ -19,326 +16,63 @@ After publication to Maven Central, GhostWork can be added as:
 </dependency>
 ```
 
-Spring AOP support is available through optional dependencies. In Spring Boot applications, add:
-
-```xml
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-aop</artifactId>
-</dependency>
-```
-
-## Publishing
-
-Release publication uses Sonatype Central Portal.
-
-Required local setup:
-
-* verified Central Portal namespace: `io.github.nikitoo0os`
-* Central Portal token in Maven `settings.xml` under server id `central`
-* local GPG key available to `gpg`
-
-Release command:
-
-```powershell
-mvn -P release clean deploy
-```
-
-The release profile attaches source and Javadoc jars, signs artifacts with GPG, and uploads the deployment bundle to Central Portal without auto-publishing.
-
-## Problem
-
-Asynchronous applications often submit work to an `ExecutorService` and lose direct visibility into the lifecycle of individual tasks.
-
-This becomes a problem when:
-
-* an operation finishes while one or more of its tasks are still running;
-* a task runs significantly longer than expected;
-* failures occur inside wrapped tasks;
-* concurrent state transitions need to remain thread-safe;
-* operational diagnostics require task-level information.
-
-GhostWork introduces explicit domain objects for operations and tasks, stores them in a thread-safe registry, and provides detection mechanisms for abnormal execution states.
-
-## Features
-
-* Explicit operation lifecycle tracking
-* Explicit task lifecycle tracking
-* Thread-safe state transitions
-* Thread-safe task and operation registry
-* Runnable and Callable instrumentation
-* ExecutorService integration
-* Ghost task detection
-* Long-running task detection
-* Deterministic time-based testing through `Clock`
-* Preservation of original task failures
-* Immutable lifecycle snapshots
-* Event listener API
-* Periodic monitoring
-* Read-only public views
-
-## Requirements
+Requirements:
 
 * Java 21 or later
 * Maven 3.8 or later
 
-## Project Structure
+## Why GhostWork
 
-```text
-src/main/java/io/nikitoo0os
-├── Detector.java
-├── GhostTaskInfo.java
-├── Main.java
-├── TrackingExecutorService.java
-├── entity
-│   ├── Operation.java
-│   ├── OperationSnapshot.java
-│   ├── Registry.java
-│   ├── Task.java
-│   ├── TaskSnapshot.java
-│   └── enums
-│       ├── OperationState.java
-│       └── TaskState.java
-├── factory
-│   ├── TrackingCallableFactory.java
-│   └── TrackingRunnableFactory.java
-└── wrap
-    ├── WrappedCallable.java
-    └── WrappedRunnable.java
-```
+Asynchronous Java code often submits work to an `ExecutorService` and then loses visibility into what happened to that work.
 
-## Core Concepts
+GhostWork helps answer questions such as:
 
-### Operation
+* Which tasks were started by this operation?
+* Did a task complete, fail, get rejected, or get cancelled?
+* Did an operation finish while one of its tasks was still running?
+* Which tasks have been running longer than expected?
+* What lifecycle events happened during execution?
 
-An `Operation` represents a logical unit of work that may contain one or more asynchronous tasks.
+## Features
 
-An operation starts in the `RUNNING` state and may transition to one of the following final states:
+* Operation lifecycle tracking
+* Task lifecycle tracking
+* Thread-safe lifecycle transitions
+* Context propagation across executor threads
+* `Runnable` and `Callable<T>` tracking
+* `Future.cancel(...)` tracking
+* Executor rejection tracking
+* Implicit operation creation when no operation is active
+* Ghost task detection
+* Stuck task detection
+* Event listener API
+* Periodic monitoring
+* Read-only public views
+* Optional Spring AOP integration
 
-```text
-RUNNING
-├── COMPLETED
-├── FAILED
-└── TIMED_OUT
-```
-
-An operation cannot transition after reaching a final state.
-
-### Task
-
-A `Task` represents an individual unit of asynchronous work associated with an operation.
-
-A task follows this lifecycle:
-
-```text
-CREATED
-└── RUNNING
-    ├── COMPLETED
-    └── FAILED
-```
-
-Task state is stored in an immutable `TaskSnapshot` and updated atomically.
-
-Each lifecycle transition records its corresponding timestamp:
-
-* creation time;
-* start time;
-* finish time.
-
-### Registry
-
-`Registry` is the central in-memory storage for operations and tasks.
-
-It provides:
-
-* operation registration;
-* task registration;
-* lookup by identifier;
-* lookup of tasks belonging to an operation.
-
-The registry uses concurrent collections and supports access from multiple threads.
-
-A task can only be registered if its parent operation is already present in the registry.
-
-### Tracking wrappers
-
-`WrappedRunnable` and `WrappedCallable` decorate user-provided tasks.
-
-They are responsible for:
-
-1. marking the task as running;
-2. executing the original delegate;
-3. marking the task as completed after successful execution;
-4. marking the task as failed when execution throws;
-5. rethrowing the original failure.
-
-If the task state transition itself fails while handling an existing exception, the state transition failure is attached to the original exception as a suppressed exception.
-
-This preserves the primary execution failure.
-
-### Tracking factories
-
-`TrackingRunnableFactory` and `TrackingCallableFactory` create tracked task wrappers.
-
-Each factory:
-
-* creates a `Task`;
-* registers it in the `Registry`;
-* wraps the original delegate;
-* injects a shared `Clock` into the wrapper.
-
-### TrackingExecutorService
-
-`TrackingExecutorService` is a focused facade over an existing `ExecutorService`.
-
-It currently supports tracked submission of:
-
-* `Runnable`;
-* `Callable<T>`.
-
-Every submitted delegate is wrapped and registered before being passed to the underlying executor.
-
-### Detector
-
-`Detector` analyzes registered tasks.
-
-It currently supports two detection modes.
-
-#### Ghost task detection
-
-A ghost task is a task that remains in the `RUNNING` state after its parent operation has finished.
-
-```java
-List<TaskView> ghostTasks =
-        ghostWork.ghostTasks(operation.id());
-```
-
-#### Stuck task detection
-
-A stuck task is a running task whose execution duration is strictly greater than a configured threshold.
-
-```java
-List<TaskView> stuckTasks =
-        ghostWork.stuckTasks(
-                operation.id(),
-                Duration.ofSeconds(30)
-        );
-```
-
-A task running for exactly the configured threshold is not considered stuck.
-
-## Architecture
-
-```text
-                         ┌──────────────────────┐
-                         │      Operation       │
-                         │ logical unit of work │
-                         └──────────┬───────────┘
-                                    │ owns
-                                    ▼
-                         ┌──────────────────────┐
-                         │         Task         │
-                         │ lifecycle + timing   │
-                         └──────────┬───────────┘
-                                    │ stored in
-                                    ▼
-                         ┌──────────────────────┐
-                         │       Registry       │
-                         │ concurrent storage   │
-                         └──────────┬───────────┘
-                                    │ inspected by
-                                    ▼
-                         ┌──────────────────────┐
-                         │       Detector       │
-                         │ ghost/stuck analysis │
-                         └──────────────────────┘
-```
-
-Task execution flow:
-
-```text
-User Runnable / Callable
-           │
-           ▼
-TrackingRunnableFactory / TrackingCallableFactory
-           │
-           ├── creates Task
-           ├── registers Task
-           └── creates wrapper
-                    │
-                    ▼
-          WrappedRunnable / WrappedCallable
-                    │
-                    ├── task.start(...)
-                    ├── delegate execution
-                    ├── task.complete(...)
-                    └── task.fail(...)
-```
-
-## Time Management
-
-Domain task objects do not access the system clock directly during lifecycle transitions.
-
-Instead, time is supplied by infrastructure:
-
-```text
-Tracking Factory
-      │
-      │ Clock
-      ▼
-Task Wrapper
-      │
-      │ Instant.now(clock)
-      ▼
-Task lifecycle method
-```
-
-This design makes time-dependent behavior deterministic and testable.
-
-Production code may use:
-
-```java
-Clock.systemUTC()
-```
-
-Tests may inject:
-
-```java
-Clock.fixed(
-        Instant.parse("2026-01-01T10:00:00Z"),
-        ZoneOffset.UTC
-)
-```
-
-## Usage Example
+## Quick Start
 
 ```java
 import io.nikitoo0os.GhostWork;
-import io.nikitoo0os.OperationView;
-import io.nikitoo0os.TaskView;
 
-import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class Example {
 
     public static void main(String[] args) throws Exception {
-        GhostWork ghostWork =
-                GhostWork.create(Executors.newFixedThreadPool(4));
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        GhostWork ghostWork = GhostWork.create(executor);
 
-        ghostWork.addEventListener(event -> {
-            System.out.println(event.type());
-        });
-        
         ghostWork.call(
-                "Data import",
+                "CustomerImport",
                 () -> {
                     ghostWork.executor()
                             .submit(
-                                    "Import customers",
+                                    "LoadCustomers",
                                     () -> {
-                                        // asynchronous work
+                                        // async work
                                     }
                             )
                             .get(1, TimeUnit.SECONDS);
@@ -346,9 +80,9 @@ public class Example {
                     return null;
                 }
         );
-        
-        OperationView operation = ghostWork.operations().getFirst();
-        List<TaskView> tasks = ghostWork.tasks(operation.id());
+
+        var operation = ghostWork.operations().getFirst();
+        var tasks = ghostWork.tasks(operation.id());
 
         System.out.println(operation.state());
         System.out.println(tasks.getFirst().state());
@@ -358,177 +92,295 @@ public class Example {
 }
 ```
 
-## Thread Safety
+## Implicit Operations
 
-GhostWork uses explicit concurrency primitives instead of relying on mutable unsynchronized state.
+If a task is submitted without an active operation, GhostWork creates an implicit operation automatically:
 
-### Lifecycle transitions
-
-Operation and task state are stored in `AtomicReference` instances.
-
-Transitions use compare-and-set semantics:
-
-```text
-read current snapshot
-        │
-validate transition
-        │
-create immutable snapshot
-        │
-compareAndSet
+```java
+ghostWork.executor()
+        .submit(
+                "StandaloneTask",
+                () -> {
+                    // work
+                }
+        );
 ```
 
-If another thread changes the state first, the transition fails with an `IllegalStateException`.
+The task is registered under an operation named:
 
-### Registry storage
+```text
+Implicit:StandaloneTask
+```
 
-The registry uses:
+This is useful for applications that want task tracking without manually wrapping every call in `ghostWork.run(...)` or `ghostWork.call(...)`.
 
-* `ConcurrentHashMap`;
-* `ConcurrentLinkedQueue`;
-* immutable copies for returned task collections.
+## Spring Usage
 
-## Error Handling
+GhostWork includes an optional Spring AOP adapter.
 
-GhostWork distinguishes between invalid input and invalid lifecycle transitions.
+For Spring Boot applications, add AOP support:
 
-| Situation                                       | Exception                  |
-| ----------------------------------------------- | -------------------------- |
-| Required argument is `null`                     | `NullPointerException`     |
-| Duration is zero or negative                    | `IllegalArgumentException` |
-| Timestamp violates lifecycle ordering           | `IllegalArgumentException` |
-| Entity cannot transition from its current state | `IllegalStateException`    |
-| Entity cannot be found in the registry          | `NoSuchElementException`   |
-| Duplicate registration                          | `IllegalStateException`    |
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId>
+</dependency>
+```
 
-## Building the Project
+Register GhostWork beans:
 
-Clone the repository:
+```java
+import io.nikitoo0os.GhostWork;
+import io.nikitoo0os.annotation.TrackedOperationInvoker;
+import io.nikitoo0os.annotation.TrackedOperationResolver;
+import io.nikitoo0os.spring.TrackedOperationAspect;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.EnableAspectJAutoProxy;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+@Configuration
+@EnableAspectJAutoProxy
+public class GhostWorkConfig {
+
+    @Bean
+    ExecutorService applicationExecutor() {
+        return Executors.newFixedThreadPool(8);
+    }
+
+    @Bean
+    GhostWork ghostWork(ExecutorService applicationExecutor) {
+        return GhostWork.create(applicationExecutor);
+    }
+
+    @Bean
+    TrackedOperationResolver trackedOperationResolver() {
+        return new TrackedOperationResolver();
+    }
+
+    @Bean
+    TrackedOperationInvoker trackedOperationInvoker(
+            GhostWork ghostWork,
+            TrackedOperationResolver resolver
+    ) {
+        return new TrackedOperationInvoker(ghostWork, resolver);
+    }
+
+    @Bean
+    TrackedOperationAspect trackedOperationAspect(
+            TrackedOperationInvoker invoker
+    ) {
+        return new TrackedOperationAspect(invoker);
+    }
+}
+```
+
+Use `@TrackedOperation` on service methods:
+
+```java
+import io.nikitoo0os.GhostWork;
+import io.nikitoo0os.annotation.TrackedOperation;
+import org.springframework.stereotype.Service;
+
+@Service
+public class CustomerImportService {
+
+    private final GhostWork ghostWork;
+
+    public CustomerImportService(GhostWork ghostWork) {
+        this.ghostWork = ghostWork;
+    }
+
+    @TrackedOperation("CustomerImport")
+    public void importCustomers() {
+        ghostWork.executor().submit(
+                "LoadCustomers",
+                this::loadCustomers
+        );
+
+        ghostWork.executor().submit(
+                "ValidateCustomers",
+                this::validateCustomers
+        );
+    }
+
+    private void loadCustomers() {
+        // load customers
+    }
+
+    private void validateCustomers() {
+        // validate customers
+    }
+}
+```
+
+Tasks submitted inside the annotated method are tracked under the annotated operation.
+
+## Diagnostics
+
+GhostWork exposes read-only views for operations and tasks:
+
+```java
+var operations = ghostWork.operations();
+var tasks = ghostWork.tasks(operationId);
+```
+
+Detect ghost tasks:
+
+```java
+var ghostTasks = ghostWork.ghostTasks(operationId);
+```
+
+A ghost task is a task that is still running after its parent operation has already finished.
+
+Detect stuck tasks:
+
+```java
+var stuckTasks = ghostWork.stuckTasks(
+        operationId,
+        Duration.ofSeconds(30)
+);
+```
+
+A stuck task is a running task whose execution duration is greater than the provided threshold.
+
+Create a report:
+
+```java
+var report = ghostWork.report(Duration.ofSeconds(30));
+```
+
+The report contains:
+
+* operations
+* tasks
+* ghost tasks
+* stuck tasks
+
+## Events
+
+GhostWork can publish lifecycle events:
+
+```java
+ghostWork.addEventListener(event -> {
+    System.out.println(event.type());
+    System.out.println(event.operation());
+    System.out.println(event.task());
+});
+```
+
+Supported event types:
+
+* `OPERATION_COMPLETED`
+* `OPERATION_FAILED`
+* `TASK_STARTED`
+* `TASK_COMPLETED`
+* `TASK_FAILED`
+* `TASK_REJECTED`
+* `TASK_CANCELLED`
+
+## Task States
+
+Tasks can move through the following states:
+
+```text
+CREATED
+RUNNING
+COMPLETED
+FAILED
+REJECTED
+CANCELLED
+```
+
+Final task states are:
+
+* `COMPLETED`
+* `FAILED`
+* `REJECTED`
+* `CANCELLED`
+
+## Operation States
+
+Operations can move through the following states:
+
+```text
+RUNNING
+COMPLETED
+FAILED
+TIMED_OUT
+```
+
+Final operation states are:
+
+* `COMPLETED`
+* `FAILED`
+* `TIMED_OUT`
+
+## Cancellation
+
+GhostWork tracks cancellation through returned futures:
+
+```java
+var future = ghostWork.executor()
+        .submit(
+                "ImportTask",
+                () -> {
+                    // work
+                }
+        );
+
+future.cancel(false);
+```
+
+If cancellation succeeds, the task transitions to `CANCELLED` and a `TASK_CANCELLED` event is published.
+
+## Monitoring
+
+GhostWork can run periodic diagnostics with a scheduler:
+
+```java
+var monitor = ghostWork.monitor(scheduledExecutorService);
+
+monitor.start(
+        Duration.ofSeconds(30),
+        Duration.ofSeconds(10),
+        report -> {
+            System.out.println(report);
+        }
+);
+```
+
+## Building From Source
 
 ```bash
 git clone https://github.com/nikitoo0os/ghostwork.git
 cd ghostwork
+mvn clean verify
 ```
 
-Run the test suite:
-
-```bash
-mvn clean test
-```
-
-Build the project:
-
-```bash
-mvn clean package
-```
-
-The generated JAR will be available in:
+The built jar is created at:
 
 ```text
 target/ghostwork-0.1.0.jar
 ```
 
-## Testing
+## Current Scope
 
-The project uses JUnit 5.
+GhostWork is an in-memory tracking library.
 
-The current test suite covers:
+It does not currently provide:
 
-* operation lifecycle transitions;
-* task lifecycle transitions;
-* concurrent registry behavior;
-* invalid state transitions;
-* Runnable tracking;
-* Callable tracking;
-* exception propagation;
-* suppressed lifecycle failures;
-* ghost task detection;
-* stuck task detection;
-* deterministic timestamp handling.
+* persistent storage
+* distributed task tracking
+* metrics export
+* OpenTelemetry integration
+* a Spring Boot auto-configuration starter
+* a complete drop-in replacement for every `ExecutorService` method
 
-Time-dependent tests use fixed clocks instead of wall-clock delays.
-
-```java
-Clock clock = Clock.fixed(
-        Instant.parse("2026-01-01T10:00:00Z"),
-        ZoneOffset.UTC
-);
-```
-
-This keeps tests fast, repeatable, and independent of machine timing.
-
-## Design Principles
-
-GhostWork follows several core engineering principles:
-
-* lifecycle state must be explicit;
-* state transitions must be atomic;
-* snapshots should be immutable;
-* domain objects should not own infrastructure concerns;
-* time should be injected where deterministic behavior matters;
-* original failures must not be hidden by secondary failures;
-* public behavior should be verified through tests;
-* abstractions should be introduced only when they have a clear responsibility.
-
-## Current Limitations
-
-GhostWork is currently an early-stage in-memory library.
-
-The current implementation does not yet provide:
-
-* persistent storage;
-* distributed task tracking;
-* metrics export;
-* annotation-based operation lifecycle orchestration;
-* persistent storage;
-* scheduled task scanning;
-* integration with observability platforms;
-* a complete implementation of the `ExecutorService` interface.
-
-`TrackingExecutorService` should currently be treated as a focused tracked-submission facade rather than a drop-in replacement for every `ExecutorService` operation.
-
-## Roadmap
-
-* [x] Operation lifecycle model
-* [x] Task lifecycle model
-* [x] Immutable lifecycle snapshots
-* [x] Thread-safe registry
-* [x] Runnable tracking
-* [x] Callable tracking
-* [x] Executor submission facade
-* [x] Ghost task detection
-* [x] Long-running task detection
-* [x] Deterministic clock injection
-* [x] Operation lifecycle orchestration
-* [x] Task cancellation tracking
-* [x] Periodic detector execution
-* [x] Event listener API
-* [ ] Metrics integration
-* [ ] Logging integration
-* [ ] Complete ExecutorService decorator
-* [ ] Public library release
-
-## Contributing
-
-GhostWork is currently developed as an educational and experimental concurrency project.
-
-Contributions should preserve the following properties:
-
-* deterministic tests;
-* explicit lifecycle contracts;
-* thread-safe state transitions;
-* clear ownership of responsibilities;
-* minimal hidden behavior;
-* backward-compatible public APIs where practical.
-
-Before submitting changes, run:
-
-```bash
-mvn clean test
-```
+`TrackingExecutorService` should be treated as a tracked submission facade around an existing executor.
 
 ## License
 
-No license has been selected yet.
-
-Until a license is added, the source code remains publicly visible but should not be assumed to grant permission for reuse, modification, or redistribution.
+GhostWork is licensed under the Apache License, Version 2.0.
