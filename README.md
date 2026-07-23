@@ -48,7 +48,6 @@ GhostWork helps answer questions such as:
 * Event listener API
 * Periodic monitoring
 * Read-only public views
-* Optional Spring AOP integration
 
 ## Quick Start
 
@@ -114,116 +113,29 @@ Implicit:StandaloneTask
 
 This is useful for applications that want task tracking without manually wrapping every call in `ghostWork.run(...)` or `ghostWork.call(...)`.
 
-## Spring Usage
+## Integrations
 
-GhostWork includes an optional Spring AOP adapter.
+The `ghostwork` artifact is framework-independent and does not depend on Spring.
 
-For Spring Boot applications, add AOP support:
+Spring AOP support lives in a separate artifact:
 
 ```xml
 <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-aop</artifactId>
+    <groupId>io.github.nikitoo0os</groupId>
+    <artifactId>ghostwork-spring</artifactId>
+    <version>0.2.0</version>
 </dependency>
 ```
 
-Register GhostWork beans:
+The optional dashboard lives in:
 
-```java
-import io.nikitoo0os.GhostWork;
-import io.nikitoo0os.annotation.TrackedOperationInvoker;
-import io.nikitoo0os.annotation.TrackedOperationResolver;
-import io.nikitoo0os.spring.TrackedOperationAspect;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.EnableAspectJAutoProxy;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-@Configuration
-@EnableAspectJAutoProxy
-public class GhostWorkConfig {
-
-    @Bean
-    ExecutorService applicationExecutor() {
-        return Executors.newFixedThreadPool(8);
-    }
-
-    @Bean
-    GhostWork ghostWork(ExecutorService applicationExecutor) {
-        return GhostWork.create(applicationExecutor);
-    }
-
-    @Bean
-    TrackedOperationResolver trackedOperationResolver() {
-        return new TrackedOperationResolver();
-    }
-
-    @Bean
-    TrackedOperationInvoker trackedOperationInvoker(
-            GhostWork ghostWork,
-            TrackedOperationResolver resolver
-    ) {
-        return new TrackedOperationInvoker(ghostWork, resolver);
-    }
-
-    @Bean
-    TrackedOperationAspect trackedOperationAspect(
-            TrackedOperationInvoker invoker
-    ) {
-        return new TrackedOperationAspect(invoker);
-    }
-}
+```xml
+<dependency>
+    <groupId>io.github.nikitoo0os</groupId>
+    <artifactId>ghostwork-dashboard-spring</artifactId>
+    <version>0.1.0</version>
+</dependency>
 ```
-
-Use `@TrackedOperation` on service methods:
-
-```java
-import io.nikitoo0os.GhostWork;
-import io.nikitoo0os.annotation.TrackedOperation;
-import org.springframework.stereotype.Service;
-
-@Service
-public class CustomerImportService {
-
-    private final GhostWork ghostWork;
-
-    public CustomerImportService(GhostWork ghostWork) {
-        this.ghostWork = ghostWork;
-    }
-
-    @TrackedOperation("CustomerImport")
-    public void importCustomers() {
-        ghostWork.executor().submit(
-                "LoadCustomers",
-                this::loadCustomers
-        );
-
-        ghostWork.executor().submit(
-                "ValidateCustomers",
-                this::validateCustomers
-        );
-    }
-
-    private void loadCustomers() {
-        // load customers
-    }
-
-    private void validateCustomers() {
-        // validate customers
-    }
-}
-```
-
-Tasks submitted inside the annotated method are tracked under the annotated operation.
-
-Important Spring notes:
-
-* `@TrackedOperation` works only when the `TrackedOperationAspect` bean is registered.
-* The annotated method must be called through a Spring-managed bean proxy.
-* Tasks that should belong to the operation must be submitted through `ghostWork.executor()`.
-* Tasks submitted directly to the original `ExecutorService` are not tracked by GhostWork.
 
 ## Diagnostics
 
@@ -370,7 +282,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.1.0.jar
+target/ghostwork-0.2.0-SNAPSHOT.jar
 ```
 
 ## Current Scope
@@ -383,7 +295,6 @@ It does not currently provide:
 * distributed task tracking
 * metrics export
 * OpenTelemetry integration
-* a Spring Boot auto-configuration starter
 * a complete drop-in replacement for every `ExecutorService` method
 
 `TrackingExecutorService` should be treated as a tracked submission facade around an existing executor.
@@ -392,7 +303,6 @@ It does not currently provide:
 
 GhostWork is actively evolving. Planned areas include:
 
-* Spring Boot auto-configuration and starter module
 * richer diagnostic DTOs for ghost and stuck tasks
 * retention policies for completed operations and tasks
 * metrics and observability integrations
