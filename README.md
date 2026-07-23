@@ -218,6 +218,13 @@ public class CustomerImportService {
 
 Tasks submitted inside the annotated method are tracked under the annotated operation.
 
+Important Spring notes:
+
+* `@TrackedOperation` works only when the `TrackedOperationAspect` bean is registered.
+* The annotated method must be called through a Spring-managed bean proxy.
+* Tasks that should belong to the operation must be submitted through `ghostWork.executor()`.
+* Tasks submitted directly to the original `ExecutorService` are not tracked by GhostWork.
+
 ## Diagnostics
 
 GhostWork exposes read-only views for operations and tasks:
@@ -380,6 +387,17 @@ It does not currently provide:
 * a complete drop-in replacement for every `ExecutorService` method
 
 `TrackingExecutorService` should be treated as a tracked submission facade around an existing executor.
+
+## Roadmap
+
+GhostWork is actively evolving. Planned areas include:
+
+* Spring Boot auto-configuration and starter module
+* richer diagnostic DTOs for ghost and stuck tasks
+* retention policies for completed operations and tasks
+* metrics and observability integrations
+* broader executor decoration coverage
+* production examples for Spring applications
 
 ## License
 
