@@ -12,7 +12,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -133,7 +133,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -282,7 +282,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.2.0-SNAPSHOT.jar
+target/ghostwork-0.2.0.jar
 ```
 
 ## Current Scope

@@ -6,7 +6,7 @@
 
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.2.0</version>
     <name>GhostWork</name>
     <description>A lightweight Java library for tracking asynchronous operations, task lifecycle, and ghost tasks.</description>
     <url>https://github.com/nikitoo0os/ghostwork</url>
