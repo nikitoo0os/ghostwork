@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/nikitoo0os/ghostwork/actions/workflows/ci.yml/badge.svg)](https://github.com/nikitoo0os/ghostwork/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.nikitoo0os/ghostwork)](https://central.sonatype.com/artifact/io.github.nikitoo0os/ghostwork)
-[![Latest release](https://img.shields.io/github/v/release/nikitoo0os/ghostwork)](https://github.com/nikitoo0os/ghostwork/releases/latest)
+[![Latest release](https://img.shields.io/github/v/tag/nikitoo0os/ghostwork)](https://github.com/nikitoo0os/ghostwork/tags)
 [![Java 21](https://img.shields.io/badge/Java-21%2B-007396)](https://adoptium.net/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
