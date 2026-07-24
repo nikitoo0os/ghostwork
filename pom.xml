@@ -6,7 +6,7 @@
 
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <name>GhostWork</name>
     <description>A lightweight Java library for tracking asynchronous operations, task lifecycle, and ghost tasks.</description>
     <url>https://github.com/nikitoo0os/ghostwork</url>
@@ -149,8 +149,8 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
-                            <autoPublish>false</autoPublish>
-                            <waitUntil>uploaded</waitUntil>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>published</waitUntil>
                         </configuration>
                     </plugin>
                 </plugins>

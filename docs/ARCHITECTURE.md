@@ -930,6 +930,27 @@ Suggested resolution order:
 4. delegate class name;
 5. generated fallback identifier.
 
+## 12.4 Same-thread task steps
+
+Some tracked work must remain on the caller thread because database
+transactions, request state, or security context are thread-bound.
+
+```java
+void runTask(
+        String taskName,
+        Runnable task
+);
+
+<T> T callTask(
+        String taskName,
+        Callable<T> task
+) throws Exception;
+```
+
+These methods require an active operation, register a normal task, publish the
+same lifecycle events, and preserve the original return value or failure. They
+must not submit work to the delegate executor.
+
 ---
 
 # 13. Implicit Operations

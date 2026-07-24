@@ -12,7 +12,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
@@ -113,6 +113,31 @@ Implicit:StandaloneTask
 
 This is useful for applications that want task tracking without manually wrapping every call in `ghostWork.run(...)` or `ghostWork.call(...)`.
 
+## Tasks In The Current Thread
+
+Database transactions, request state, and security context are commonly bound to
+the calling thread. Use `runTask(...)` or `callTask(...)` to measure a named step
+without moving it to the delegate executor:
+
+```java
+ghostWork.call("LoadProductPage", () -> {
+    var products = ghostWork.executor().callTask(
+            "Query products",
+            productRepository::findAll
+    );
+
+    ghostWork.executor().runTask(
+            "Map response",
+            () -> mapProducts(products)
+    );
+
+    return products;
+});
+```
+
+These methods require an active operation and create normal tracked tasks with
+the same lifecycle, timing, events, and diagnostics as submitted tasks.
+
 ## Integrations
 
 The `ghostwork` artifact is framework-independent and does not depend on Spring.
@@ -133,7 +158,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
@@ -282,7 +307,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.2.0.jar
+target/ghostwork-0.3.0.jar
 ```
 
 ## Current Scope

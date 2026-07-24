@@ -195,6 +195,28 @@ public final class TrackingExecutorService {
         execute(operation, taskName, runnable);
     }
 
+    public void runTask(
+            String taskName,
+            Runnable runnable
+    ) {
+        Operation operation = currentOperationOrThrow();
+        TrackingRunnable trackingRunnable =
+                runnableFactory.wrap(operation, taskName, runnable);
+
+        trackingRunnable.runnable().run();
+    }
+
+    public <T> T callTask(
+            String taskName,
+            Callable<T> callable
+    ) throws Exception {
+        Operation operation = currentOperationOrThrow();
+        TrackingCallable<T> trackingCallable =
+                callableFactory.wrap(operation, taskName, callable);
+
+        return trackingCallable.callable().call();
+    }
+
     public void shutdown() {
         delegate.shutdown();
     }

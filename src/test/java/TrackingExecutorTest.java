@@ -69,6 +69,79 @@ public class TrackingExecutorTest {
     }
 
     @Test
+    void runTaskShouldTrackRunnableOnCallingThread() {
+        Thread callingThread = Thread.currentThread();
+        Thread[] taskThread = new Thread[1];
+
+        try (OperationContext.Scope ignored = OperationContext.open(operation)) {
+            trackingExecutor.runTask(
+                    "InlineRunnable",
+                    () -> taskThread[0] = Thread.currentThread()
+            );
+        }
+
+        Task task = registry.findTasksByOperation(operation.getId()).getFirst();
+
+        assertSame(callingThread, taskThread[0]);
+        assertEquals(TaskState.COMPLETED, task.getState());
+        assertEquals(Instant.now(clock), task.getStartedAt());
+        assertEquals(Instant.now(clock), task.getFinishedAt());
+    }
+
+    @Test
+    void callTaskShouldTrackCallableAndReturnResult() throws Exception {
+        String result;
+
+        try (OperationContext.Scope ignored = OperationContext.open(operation)) {
+            result = trackingExecutor.callTask(
+                    "InlineCallable",
+                    () -> "done"
+            );
+        }
+
+        Task task = registry.findTasksByOperation(operation.getId()).getFirst();
+
+        assertEquals("done", result);
+        assertEquals(TaskState.COMPLETED, task.getState());
+    }
+
+    @Test
+    void callTaskShouldPreserveOriginalFailureAndFailTask() {
+        IllegalArgumentException original =
+                new IllegalArgumentException("business failure");
+
+        IllegalArgumentException thrown;
+        try (OperationContext.Scope ignored = OperationContext.open(operation)) {
+            thrown = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> trackingExecutor.callTask(
+                            "FailingInlineCallable",
+                            () -> {
+                                throw original;
+                            }
+                    )
+            );
+        }
+
+        Task task = registry.findTasksByOperation(operation.getId()).getFirst();
+
+        assertSame(original, thrown);
+        assertEquals(TaskState.FAILED, task.getState());
+    }
+
+    @Test
+    void inlineTaskShouldRequireOperationContext() {
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> trackingExecutor.runTask("NoContext", () -> {
+                })
+        );
+
+        assertEquals("OperationContext is empty", exception.getMessage());
+        assertTrue(registry.findTasksByOperation(operation.getId()).isEmpty());
+    }
+
+    @Test
     void submitShouldTrackAndCompleteTask() throws Exception {
         Future<?> future = trackingExecutor.submit(
                 operation,
@@ -413,6 +486,7 @@ public class TrackingExecutorTest {
 
         Task task = tasks.getFirst();
 
+        awaitState(task, TaskState.COMPLETED);
         assertEquals(TaskState.COMPLETED, task.getState());
         assertEquals(Instant.now(clock), task.getStartedAt());
         assertEquals(Instant.now(clock), task.getFinishedAt());
@@ -439,6 +513,7 @@ public class TrackingExecutorTest {
 
         Task task = tasks.getFirst();
 
+        awaitState(task, TaskState.COMPLETED);
         assertEquals(TaskState.COMPLETED, task.getState());
         assertEquals(Instant.now(clock), task.getStartedAt());
         assertEquals(Instant.now(clock), task.getFinishedAt());
@@ -837,5 +912,14 @@ public class TrackingExecutorTest {
                 .getFirst();
 
         assertEquals(TaskState.COMPLETED, task.getState());
+    }
+
+    private static void awaitState(Task task, TaskState expected)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+
+        while (task.getState() != expected && System.nanoTime() < deadline) {
+            Thread.sleep(1);
+        }
     }
 }
