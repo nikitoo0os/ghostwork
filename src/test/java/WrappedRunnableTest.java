@@ -24,6 +24,7 @@ public class WrappedRunnableTest {
 
         WrappedRunnable wrappedRunnable = new WrappedRunnable(runnable, task);
 
+        task.submit();
         wrappedRunnable.run();
         assertEquals(
                 TaskState.COMPLETED,
@@ -44,6 +45,7 @@ public class WrappedRunnableTest {
 
         WrappedRunnable wrappedRunnable = new WrappedRunnable(runnable, task);
 
+        task.submit();
         assertThrows(RuntimeException.class, wrappedRunnable::run);
         assertEquals(
                 TaskState.FAILED,
@@ -74,6 +76,7 @@ public class WrappedRunnableTest {
                 task
         );
 
+        task.submit();
         RuntimeException exception = assertThrows(
                 RuntimeException.class,
                 wrappedRunnable::run

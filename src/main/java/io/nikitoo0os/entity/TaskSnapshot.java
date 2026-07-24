@@ -11,7 +11,7 @@ public final class TaskSnapshot {
 
     public TaskSnapshot(Instant startedAt, Instant finishedAt, TaskState state) {
         if (state != null) {
-            if (state == TaskState.CREATED) {
+            if (state == TaskState.CREATED || state == TaskState.SUBMITTED) {
                 if (startedAt != null || finishedAt != null) {
                     throw new IllegalStateException("Task with the " + state.name() + " state should not have a start and end time.");
                 }

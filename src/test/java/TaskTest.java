@@ -36,10 +36,19 @@ public class TaskTest {
     }
 
     @Test
+    void submittedTaskShouldHaveSubmittedStateWithoutTimes() {
+        task.submit();
+
+        assertEquals(TaskState.SUBMITTED, task.getState());
+        assertNull(task.getStartedAt());
+        assertNull(task.getFinishedAt());
+    }
+
+    @Test
     void runningTaskShouldHaveRunningStateAndNullEndTime() {
         Instant startedAt = Instant.now(clock);
 
-        task.start(startedAt);
+        startTask(startedAt);
 
         assertEquals(TaskState.RUNNING, task.getState());
         assertEquals(startedAt, task.getStartedAt());
@@ -51,7 +60,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.plusSeconds(10);
 
-        task.start(startedAt);
+        startTask(startedAt);
         task.complete(finishedAt);
 
         assertEquals(TaskState.COMPLETED, task.getState());
@@ -77,11 +86,11 @@ public class TaskTest {
 
     @Test
     void runningTaskShouldNotStartAgain() {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         assertThrows(
                 IllegalStateException.class,
-                () -> task.start(Instant.now(clock))
+                () -> startTask(Instant.now(clock))
         );
     }
 
@@ -90,7 +99,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.plusSeconds(10);
 
-        task.start(startedAt);
+        startTask(startedAt);
         task.fail(finishedAt);
 
         assertEquals(TaskState.FAILED, task.getState());
@@ -103,7 +112,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.minusSeconds(1);
 
-        task.start(startedAt);
+        startTask(startedAt);
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -116,7 +125,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.minusSeconds(1);
 
-        task.start(startedAt);
+        startTask(startedAt);
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -128,13 +137,13 @@ public class TaskTest {
     void taskShouldRejectNullStartTime() {
         assertThrows(
                 NullPointerException.class,
-                () -> task.start(null)
+                () -> startTask(null)
         );
     }
 
     @Test
     void taskShouldRejectNullCompletionTime() {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         assertThrows(
                 NullPointerException.class,
@@ -144,7 +153,7 @@ public class TaskTest {
 
     @Test
     void taskShouldRejectNullFailureTime() {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         assertThrows(
                 NullPointerException.class,
@@ -155,7 +164,7 @@ public class TaskTest {
     @Test
     void concurrentCompletionShouldAllowOnlyOneSuccessfulTransition()
             throws InterruptedException {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         AtomicInteger successCount = new AtomicInteger();
 
@@ -214,7 +223,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.plusSeconds(10);
 
-        task.start(startedAt);
+        startTask(startedAt);
         task.cancel(finishedAt);
 
         assertEquals(TaskState.CANCELLED, task.getState());
@@ -228,7 +237,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.minusSeconds(1);
 
-        task.start(startedAt);
+        startTask(startedAt);
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -238,7 +247,7 @@ public class TaskTest {
 
     @Test
     void taskShouldRejectNullCancellationTime() {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         assertThrows(
                 NullPointerException.class,
@@ -260,7 +269,7 @@ public class TaskTest {
 
     @Test
     void runningTaskShouldNotGoToRejectedState() {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         assertThrows(
                 IllegalStateException.class,
@@ -273,7 +282,7 @@ public class TaskTest {
         Instant startedAt = Instant.now(clock);
         Instant finishedAt = startedAt.plusSeconds(10);
 
-        task.start(startedAt);
+        startTask(startedAt);
         task.complete(finishedAt);
 
         assertThrows(
@@ -288,7 +297,7 @@ public class TaskTest {
 
         assertThrows(
                 IllegalStateException.class,
-                () -> task.start(Instant.now(clock))
+                () -> startTask(Instant.now(clock))
         );
     }
 
@@ -303,7 +312,7 @@ public class TaskTest {
     @Test
     void concurrentFinishShouldAllowOnlyOneSuccessfulTransition()
             throws InterruptedException {
-        task.start(Instant.now(clock));
+        startTask(Instant.now(clock));
 
         AtomicInteger successCount = new AtomicInteger();
 
@@ -364,7 +373,7 @@ public class TaskTest {
 
         Thread t1 = new Thread(() -> {
             try {
-                task.start(Instant.now(clock));
+                startTask(Instant.now(clock));
                 successCount.incrementAndGet();
             } catch (IllegalStateException ignored) {
                 // Another thread moved the task out of CREATED first.
@@ -415,7 +424,7 @@ public class TaskTest {
 
         Thread t1 = new Thread(() -> {
             try {
-                task.start(Instant.now(clock));
+                startTask(Instant.now(clock));
                 successCount.incrementAndGet();
             } catch (IllegalStateException ignored) {
                 // Another thread cancelled the task before it started.
@@ -466,6 +475,13 @@ public class TaskTest {
             }
         }
 
+    }
+
+    private void startTask(Instant startedAt) {
+        if (task.getState() == TaskState.CREATED) {
+            task.submit();
+        }
+        task.start(startedAt);
     }
 }
 

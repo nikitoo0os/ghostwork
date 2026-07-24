@@ -33,7 +33,7 @@ public final class Task {
 
         TaskSnapshot currentSnapshot = taskSnapshot.get();
 
-        if (currentSnapshot.getState() != TaskState.CREATED) {
+        if (currentSnapshot.getState() != TaskState.SUBMITTED) {
             throw new IllegalStateException(
                     "The task cannot switch from state " +
                             currentSnapshot.getState() +
@@ -60,6 +60,30 @@ public final class Task {
         }
     }
 
+    public void submit() {
+        TaskSnapshot currentSnapshot = taskSnapshot.get();
+
+        if (currentSnapshot.getState() != TaskState.CREATED) {
+            throw new IllegalStateException(
+                    "The task cannot switch from state "
+                            + currentSnapshot.getState()
+                            + " to state "
+                            + TaskState.SUBMITTED
+            );
+        }
+
+        boolean changed = taskSnapshot.compareAndSet(
+                currentSnapshot,
+                new TaskSnapshot(null, null, TaskState.SUBMITTED)
+        );
+
+        if (!changed) {
+            throw new IllegalStateException(
+                    "The other thread has already changed the task state"
+            );
+        }
+    }
+
     public void complete(Instant finishedAt) {
         finishState(finishedAt, TaskState.COMPLETED);
     }
@@ -77,6 +101,7 @@ public final class Task {
         TaskSnapshot currentSnapshot = taskSnapshot.get();
 
         if (currentSnapshot.getState() != TaskState.CREATED &&
+                currentSnapshot.getState() != TaskState.SUBMITTED &&
                 currentSnapshot.getState() != TaskState.RUNNING) {
             throw new IllegalStateException(
                     "The task cannot switch from state " +
@@ -119,7 +144,8 @@ public final class Task {
 
         TaskSnapshot currentSnapshot = taskSnapshot.get();
 
-        if (currentSnapshot.getState() != TaskState.CREATED) {
+        if (currentSnapshot.getState() != TaskState.CREATED &&
+                currentSnapshot.getState() != TaskState.SUBMITTED) {
             throw new IllegalStateException(
                     "The task cannot switch from state " +
                             currentSnapshot.getState() +

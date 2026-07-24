@@ -16,17 +16,28 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public final class GhostWork {
     private final Registry registry;
     private final OperationRunner operationRunner;
     private final TrackingExecutorService executor;
     private final GhostWorkEventPublisher eventPublisher;
-
     private final Detector detector;
+    private final Clock clock;
+    private final RetentionPolicy retentionPolicy;
 
-    private GhostWork(Registry registry, OperationRunner operationRunner, TrackingExecutorService executor, Detector detector, GhostWorkEventPublisher eventPublisher) {
+    private GhostWork(
+            Registry registry,
+            OperationRunner operationRunner,
+            TrackingExecutorService executor,
+            Detector detector,
+            GhostWorkEventPublisher eventPublisher,
+            Clock clock,
+            RetentionPolicy retentionPolicy
+    ) {
         this.registry = Objects.requireNonNull(registry, "Registry must not be null");
         this.operationRunner = Objects.requireNonNull(operationRunner, "Operation runner must not be null");
         this.executor = Objects.requireNonNull(executor, "Executor must not be null");
@@ -35,10 +46,26 @@ public final class GhostWork {
                 eventPublisher,
                 "Event publisher must not be null"
         );
+        this.clock = Objects.requireNonNull(clock, "Clock must not be null");
+        this.retentionPolicy = Objects.requireNonNull(
+                retentionPolicy,
+                "Retention policy must not be null"
+        );
     }
 
     public static GhostWork create(ExecutorService delegate) {
+        return create(delegate, RetentionPolicy.defaults());
+    }
+
+    public static GhostWork create(
+            ExecutorService delegate,
+            RetentionPolicy retentionPolicy
+    ) {
         Objects.requireNonNull(delegate, "Delegate executor must not be null");
+        Objects.requireNonNull(
+                retentionPolicy,
+                "Retention policy must not be null"
+        );
         Registry registry = new Registry();
         Clock clock = Clock.systemUTC();
         Detector detector = new Detector(registry, clock);
@@ -66,7 +93,15 @@ public final class GhostWork {
         OperationRunner operationRunner =
                 new OperationRunner(registry, eventPublisher);
 
-        return new GhostWork(registry, operationRunner, executor, detector, eventPublisher);
+        return new GhostWork(
+                registry,
+                operationRunner,
+                executor,
+                detector,
+                eventPublisher,
+                clock,
+                retentionPolicy
+        );
     }
 
     public void run(String operationName, Runnable runnable) {
@@ -176,6 +211,29 @@ public final class GhostWork {
 
     public GhostWorkMonitor monitor(ScheduledExecutorService scheduler) {
         return new GhostWorkMonitor(this, scheduler);
+    }
+
+    public int cleanup() {
+        return registry.cleanupCompletedOperations(
+                retentionPolicy.maxCompletedOperations(),
+                retentionPolicy.completedOperationTtl(),
+                java.time.Instant.now(clock)
+        );
+    }
+
+    public ScheduledFuture<?> startRetentionCleanup(
+            ScheduledExecutorService scheduler
+    ) {
+        Objects.requireNonNull(scheduler, "Scheduler must not be null");
+        long intervalMillis =
+                retentionPolicy.cleanupInterval().toMillis();
+
+        return scheduler.scheduleWithFixedDelay(
+                this::cleanup,
+                intervalMillis,
+                intervalMillis,
+                TimeUnit.MILLISECONDS
+        );
     }
 
     public void addEventListener(GhostWorkEventListener listener) {

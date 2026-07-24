@@ -320,11 +320,12 @@ public class GhostWorkTest {
                 }
         );
 
-        assertEquals(3, events.size());
+        assertEquals(4, events.size());
 
-        assertEquals(GhostWorkEventType.TASK_STARTED, events.get(0).type());
-        assertEquals(GhostWorkEventType.TASK_COMPLETED, events.get(1).type());
-        assertEquals(GhostWorkEventType.OPERATION_COMPLETED, events.get(2).type());
+        assertEquals(GhostWorkEventType.TASK_SUBMITTED, events.get(0).type());
+        assertEquals(GhostWorkEventType.TASK_STARTED, events.get(1).type());
+        assertEquals(GhostWorkEventType.TASK_COMPLETED, events.get(2).type());
+        assertEquals(GhostWorkEventType.OPERATION_COMPLETED, events.get(3).type());
     }
 
     @Test
@@ -627,20 +628,22 @@ public class GhostWorkTest {
                 )
                 .get(1, TimeUnit.SECONDS);
 
-        assertEquals(3, events.size());
+        assertEquals(4, events.size());
 
-        assertEquals(GhostWorkEventType.TASK_STARTED, events.get(0).type());
+        assertEquals(GhostWorkEventType.TASK_SUBMITTED, events.get(0).type());
+        assertEquals(GhostWorkEventType.TASK_STARTED, events.get(1).type());
         assertEquals("Implicit:StandaloneTask", events.get(0).operation().name());
         assertEquals("StandaloneTask", events.get(0).task().name());
-        assertEquals(TaskState.RUNNING, events.get(0).task().state());
+        assertEquals(TaskState.SUBMITTED, events.get(0).task().state());
+        assertEquals(TaskState.RUNNING, events.get(1).task().state());
 
-        assertEquals(GhostWorkEventType.TASK_COMPLETED, events.get(1).type());
-        assertEquals("Implicit:StandaloneTask", events.get(1).operation().name());
-        assertEquals("StandaloneTask", events.get(1).task().name());
-        assertEquals(TaskState.COMPLETED, events.get(1).task().state());
-
-        assertEquals(GhostWorkEventType.OPERATION_COMPLETED, events.get(2).type());
+        assertEquals(GhostWorkEventType.TASK_COMPLETED, events.get(2).type());
         assertEquals("Implicit:StandaloneTask", events.get(2).operation().name());
-        assertEquals(OperationState.COMPLETED, events.get(2).operation().state());
+        assertEquals("StandaloneTask", events.get(2).task().name());
+        assertEquals(TaskState.COMPLETED, events.get(2).task().state());
+
+        assertEquals(GhostWorkEventType.OPERATION_COMPLETED, events.get(3).type());
+        assertEquals("Implicit:StandaloneTask", events.get(3).operation().name());
+        assertEquals(OperationState.COMPLETED, events.get(3).operation().state());
     }
 }

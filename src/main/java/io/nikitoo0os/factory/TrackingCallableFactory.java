@@ -50,4 +50,8 @@ public final class TrackingCallableFactory {
                 new WrappedCallable<>(delegate, task, clock, eventPublisher)
         );
     }
+
+    public Registry registry() {
+        return registry;
+    }
 }

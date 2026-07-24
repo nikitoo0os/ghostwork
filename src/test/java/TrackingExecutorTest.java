@@ -632,11 +632,14 @@ public class TrackingExecutorTest {
                 }
         ).get(1, TimeUnit.SECONDS);
 
-        assertEquals(2, events.size());
+        assertEquals(3, events.size());
 
-        GhostWorkEvent started = events.get(0);
-        GhostWorkEvent completed = events.get(1);
+        GhostWorkEvent submitted = events.get(0);
+        GhostWorkEvent started = events.get(1);
+        GhostWorkEvent completed = events.get(2);
 
+        assertEquals(GhostWorkEventType.TASK_SUBMITTED, submitted.type());
+        assertEquals(TaskState.SUBMITTED, submitted.task().state());
         assertEquals(GhostWorkEventType.TASK_STARTED, started.type());
         assertEquals("ImportUsers", started.operation().name());
         assertEquals("ReadFile", started.task().name());
@@ -673,11 +676,14 @@ public class TrackingExecutorTest {
 
         assertInstanceOf(RuntimeException.class, exception.getCause());
 
-        assertEquals(2, events.size());
+        assertEquals(3, events.size());
 
-        GhostWorkEvent started = events.get(0);
-        GhostWorkEvent failed = events.get(1);
+        GhostWorkEvent submitted = events.get(0);
+        GhostWorkEvent started = events.get(1);
+        GhostWorkEvent failed = events.get(2);
 
+        assertEquals(GhostWorkEventType.TASK_SUBMITTED, submitted.type());
+        assertEquals(TaskState.SUBMITTED, submitted.task().state());
         assertEquals(GhostWorkEventType.TASK_STARTED, started.type());
         assertEquals(TaskState.RUNNING, started.task().state());
 
@@ -705,11 +711,14 @@ public class TrackingExecutorTest {
         ).get(1, TimeUnit.SECONDS);
 
         assertEquals("done", result);
-        assertEquals(2, events.size());
+        assertEquals(3, events.size());
 
-        GhostWorkEvent started = events.get(0);
-        GhostWorkEvent completed = events.get(1);
+        GhostWorkEvent submitted = events.get(0);
+        GhostWorkEvent started = events.get(1);
+        GhostWorkEvent completed = events.get(2);
 
+        assertEquals(GhostWorkEventType.TASK_SUBMITTED, submitted.type());
+        assertEquals(TaskState.SUBMITTED, submitted.task().state());
         assertEquals(GhostWorkEventType.TASK_STARTED, started.type());
         assertEquals("ImportUsers", started.operation().name());
         assertEquals("ReadFile", started.task().name());

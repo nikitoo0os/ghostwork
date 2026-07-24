@@ -31,6 +31,7 @@ public class DetectorTest {
         registry.registerOperation(operation);
         registry.registerTask(task);
 
+        task.submit();
         task.start(NOW.minusSeconds(30));
         operation.complete();
 
@@ -52,6 +53,7 @@ public class DetectorTest {
         registry.registerOperation(operation);
         registry.registerTask(task);
 
+        task.submit();
         task.start(NOW.minusSeconds(30));
 
         Detector detector = new Detector(registry, FIXED_CLOCK);
@@ -73,6 +75,7 @@ public class DetectorTest {
 
         Instant startedAt = NOW.minusSeconds(30);
 
+        task.submit();
         task.start(startedAt);
         task.complete(startedAt.plusSeconds(10));
         operation.complete();
@@ -94,6 +97,7 @@ public class DetectorTest {
         registry.registerOperation(operation);
         registry.registerTask(task);
 
+        task.submit();
         task.start(NOW.minusSeconds(61));
 
         Detector detector = new Detector(registry, FIXED_CLOCK);
@@ -116,6 +120,7 @@ public class DetectorTest {
         registry.registerOperation(operation);
         registry.registerTask(task);
 
+        task.submit();
         task.start(NOW.minusSeconds(60));
 
         Detector detector = new Detector(registry, FIXED_CLOCK);
@@ -137,6 +142,7 @@ public class DetectorTest {
         registry.registerOperation(operation);
         registry.registerTask(task);
 
+        task.submit();
         task.start(NOW.minusSeconds(59));
 
         Detector detector = new Detector(registry, FIXED_CLOCK);
@@ -160,6 +166,7 @@ public class DetectorTest {
 
         Instant startedAt = NOW.minusSeconds(120);
 
+        task.submit();
         task.start(startedAt);
         task.complete(NOW.minusSeconds(30));
 
@@ -184,6 +191,7 @@ public class DetectorTest {
 
         Instant startedAt = NOW.minusSeconds(120);
 
+        task.submit();
         task.start(startedAt);
         task.fail(NOW.minusSeconds(30));
 

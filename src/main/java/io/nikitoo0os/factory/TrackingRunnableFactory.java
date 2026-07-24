@@ -51,4 +51,8 @@ public final class TrackingRunnableFactory {
                 new WrappedRunnable(delegate, task, clock, eventPublisher)
         );
     }
+
+    public Registry registry() {
+        return registry;
+    }
 }

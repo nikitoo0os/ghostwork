@@ -28,6 +28,24 @@ This document describes the intended product architecture rather than only the c
 
 The current implementation may temporarily differ from the target structure while GhostWork evolves incrementally.
 
+## 1.1 Implementation Status (`0.4.x`)
+
+The framework-independent core currently implements:
+
+* the `CREATED -> SUBMITTED -> RUNNING -> terminal` task lifecycle;
+* atomic task and operation transitions;
+* operation context propagation and restoration;
+* implicit operations;
+* the complete standard `ExecutorService` contract;
+* cancellation, rejection, interruption, and bulk-operation tracking;
+* ghost and stuck diagnostics;
+* configurable in-memory retention by TTL and completed-operation count.
+
+Spring AOP integration is published separately as `ghostwork-spring`.
+The opt-in Spring MVC dashboard is published separately as
+`ghostwork-dashboard-spring`. Scheduled executor decoration, persistence, and
+distributed tracing remain future work.
+
 ---
 
 # 2. Product Vision

@@ -1,5 +1,11 @@
 # GhostWork
 
+[![Build](https://github.com/nikitoo0os/ghostwork/actions/workflows/ci.yml/badge.svg)](https://github.com/nikitoo0os/ghostwork/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.nikitoo0os/ghostwork)](https://central.sonatype.com/artifact/io.github.nikitoo0os/ghostwork)
+[![Latest release](https://img.shields.io/github/v/release/nikitoo0os/ghostwork)](https://github.com/nikitoo0os/ghostwork/releases/latest)
+[![Java 21](https://img.shields.io/badge/Java-21%2B-007396)](https://adoptium.net/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 GhostWork is a lightweight Java library for tracking asynchronous work submitted to executors.
 
 It groups tasks under logical operations, records task lifecycle transitions, detects tasks that keep running after their parent operation has finished, and exposes diagnostics through a small public API.
@@ -12,7 +18,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -40,6 +46,7 @@ GhostWork helps answer questions such as:
 * Thread-safe lifecycle transitions
 * Context propagation across executor threads
 * `Runnable` and `Callable<T>` tracking
+* Complete standard `ExecutorService` decoration
 * `Future.cancel(...)` tracking
 * Executor rejection tracking
 * Implicit operation creation when no operation is active
@@ -47,6 +54,7 @@ GhostWork helps answer questions such as:
 * Stuck task detection
 * Event listener API
 * Periodic monitoring
+* Configurable in-memory retention
 * Read-only public views
 
 ## Quick Start
@@ -148,7 +156,7 @@ Spring AOP support lives in a separate artifact:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring</artifactId>
-    <version>0.2.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -158,7 +166,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -219,6 +227,8 @@ Supported event types:
 
 * `OPERATION_COMPLETED`
 * `OPERATION_FAILED`
+* `OPERATION_TIMED_OUT`
+* `TASK_SUBMITTED`
 * `TASK_STARTED`
 * `TASK_COMPLETED`
 * `TASK_FAILED`
@@ -231,6 +241,7 @@ Tasks can move through the following states:
 
 ```text
 CREATED
+SUBMITTED
 RUNNING
 COMPLETED
 FAILED
@@ -280,6 +291,25 @@ future.cancel(false);
 
 If cancellation succeeds, the task transitions to `CANCELLED` and a `TASK_CANCELLED` event is published.
 
+## Retention
+
+GhostWork keeps diagnostics in memory. Configure how completed operations are
+removed by age and count:
+
+```java
+var retention = new RetentionPolicy(
+        10_000,
+        Duration.ofHours(24),
+        Duration.ofMinutes(5)
+);
+
+GhostWork ghostWork = GhostWork.create(executor, retention);
+ghostWork.startRetentionCleanup(scheduledExecutorService);
+```
+
+`cleanup()` can also be called manually. Operations with active tasks are never
+removed.
+
 ## Monitoring
 
 GhostWork can run periodic diagnostics with a scheduler:
@@ -307,7 +337,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.3.0.jar
+target/ghostwork-0.4.0.jar
 ```
 
 ## Current Scope
@@ -320,18 +350,19 @@ It does not currently provide:
 * distributed task tracking
 * metrics export
 * OpenTelemetry integration
-* a complete drop-in replacement for every `ExecutorService` method
+* `ScheduledExecutorService` decoration
 
-`TrackingExecutorService` should be treated as a tracked submission facade around an existing executor.
+`TrackingExecutorService` implements the complete standard `ExecutorService`
+contract and delegates executor ownership and shutdown semantics to the supplied
+executor.
 
 ## Roadmap
 
 GhostWork is actively evolving. Planned areas include:
 
 * richer diagnostic DTOs for ghost and stuck tasks
-* retention policies for completed operations and tasks
 * metrics and observability integrations
-* broader executor decoration coverage
+* scheduled executor decoration
 * production examples for Spring applications
 
 ## License

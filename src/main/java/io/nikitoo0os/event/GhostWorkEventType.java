@@ -3,6 +3,8 @@ package io.nikitoo0os.event;
 public enum GhostWorkEventType {
     OPERATION_COMPLETED,
     OPERATION_FAILED,
+    OPERATION_TIMED_OUT,
+    TASK_SUBMITTED,
     TASK_STARTED,
     TASK_COMPLETED,
     TASK_FAILED,

@@ -37,6 +37,7 @@ public class TrackingRunnableFactoryTest {
 
         assertEquals(TaskState.CREATED, task.getState());
 
+        task.submit();
         trackingRunnable.runnable().run();
 
         assertEquals(TaskState.COMPLETED, task.getState());
