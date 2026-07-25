@@ -1,0 +1,13 @@
+package io.nikitoo0os;
+
+public enum CancellationCause {
+    USER_REQUEST,
+    OPERATION_CANCELLED,
+    OPERATION_TIMED_OUT,
+    CLIENT_ABORTED,
+    OPERATION_FAILED,
+    APPLICATION_SHUTDOWN,
+    PARENT_TASK_CANCELLED,
+    FUTURE_CANCELLED,
+    UNKNOWN
+}

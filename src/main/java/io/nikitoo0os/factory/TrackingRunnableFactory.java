@@ -6,6 +6,9 @@ import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
 import io.nikitoo0os.wrap.WrappedRunnable;
+import io.nikitoo0os.TaskOptions;
+import io.nikitoo0os.GhostWorkContext;
+import io.nikitoo0os.entity.CancellationCoordinator;
 
 import java.time.Clock;
 import java.util.Objects;
@@ -14,6 +17,7 @@ public final class TrackingRunnableFactory {
     private final Registry registry;
     private final Clock clock;
     private final GhostWorkEventPublisher eventPublisher;
+    private final CancellationCoordinator cancellation;
 
     public TrackingRunnableFactory(Registry registry) {
         this(registry, Clock.systemUTC(), new GhostWorkEventPublisher());
@@ -33,6 +37,10 @@ public final class TrackingRunnableFactory {
         this.eventPublisher = Objects.requireNonNull(
                 eventPublisher,
                 "Event publisher must not be null"
+        );
+        this.cancellation = registry.cancellationCoordinator(
+                clock,
+                eventPublisher
         );
     }
 
@@ -59,19 +67,49 @@ public final class TrackingRunnableFactory {
             Runnable delegate,
             ExecutorMetadata executorMetadata
     ) {
+        return wrap(
+                operation,
+                TaskOptions.inherited(taskName),
+                delegate,
+                executorMetadata
+        );
+    }
+
+    public TrackingRunnable wrap(
+            Operation operation,
+            TaskOptions options,
+            Runnable delegate,
+            ExecutorMetadata executorMetadata
+    ) {
         Objects.requireNonNull(operation);
         Objects.requireNonNull(delegate);
+        Objects.requireNonNull(options);
 
-        Task task = new Task(taskName, operation, executorMetadata);
+        Task task = new Task(options.name(), operation, executorMetadata);
         registry.registerTask(task);
+        cancellation.register(
+                task,
+                options.cancellationMode(),
+                GhostWorkContext.currentTaskId().orElse(null)
+        );
 
         return new TrackingRunnable(
                 task,
-                new WrappedRunnable(delegate, task, clock, eventPublisher)
+                new WrappedRunnable(
+                        delegate,
+                        task,
+                        clock,
+                        eventPublisher,
+                        cancellation
+                )
         );
     }
 
     public Registry registry() {
         return registry;
+    }
+
+    public CancellationCoordinator cancellationCoordinator() {
+        return cancellation;
     }
 }

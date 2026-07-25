@@ -18,7 +18,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0</version>
 </dependency>
 ```
 
@@ -48,6 +48,10 @@ GhostWork helps answer questions such as:
 * `Runnable` and `Callable<T>` tracking
 * Complete standard `ExecutorService` decoration
 * `Future.cancel(...)` tracking
+* Cooperative cancellation tokens and callbacks
+* Policy-driven operation and parent-task cancellation
+* Explicit detached tasks
+* Cancellation grace-period diagnostics
 * Executor rejection tracking
 * Implicit operation creation when no operation is active
 * Ghost task detection
@@ -158,7 +162,7 @@ Spring AOP support lives in a separate artifact:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0</version>
 </dependency>
 ```
 
@@ -168,7 +172,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0</version>
 </dependency>
 ```
 
@@ -253,6 +257,16 @@ Supported event types:
 * `OPERATION_COMPLETED`
 * `OPERATION_FAILED`
 * `OPERATION_TIMED_OUT`
+* `OPERATION_ABORTED`
+* `OPERATION_CANCELLED`
+* `OPERATION_CANCELLATION_REQUESTED`
+* `TASK_CANCELLATION_REQUESTED`
+* `TASK_CANCELLATION_ACCEPTED`
+* `TASK_INTERRUPT_REQUESTED`
+* `TASK_CANCELLATION_OBSERVED`
+* `TASK_CANCELLATION_COMPLETED`
+* `TASK_CANCELLATION_GRACE_PERIOD_EXCEEDED`
+* `CANCELLATION_CALLBACK_FAILED`
 * `TASK_SUBMITTED`
 * `TASK_STARTED`
 * `TASK_COMPLETED`
@@ -291,6 +305,7 @@ COMPLETED
 FAILED
 TIMED_OUT
 ABORTED
+CANCELLED
 ```
 
 Final operation states are:
@@ -299,27 +314,117 @@ Final operation states are:
 * `FAILED`
 * `TIMED_OUT`
 * `ABORTED`
+* `CANCELLED`
 
 `ABORTED` is used by externally owned operations, such as Spring MVC requests
-whose client disconnected. It does not cancel child tasks.
+whose client disconnected. `CANCELLED` is reserved for explicit cancellation;
+timeouts and client aborts retain their original operation state.
 
-## Cancellation
+## Cancellation Model
 
-GhostWork tracks cancellation through returned futures:
+Cancellation is a separate lifecycle dimension. A running task can have
+`state=RUNNING` and `cancellation.status=PENDING` at the same time. A request,
+an accepted `Future.cancel(...)`, an interrupt attempt, cooperative observation,
+and terminal cancellation are recorded independently.
+
+Cancel an operation or an individual task:
 
 ```java
-var future = ghostWork.executor()
-        .submit(
-                "ImportTask",
-                () -> {
-                    // work
-                }
-        );
+CancellationResult operationResult =
+        ghostWork.cancelOperation(operationId);
 
-future.cancel(false);
+CancellationResult taskResult =
+        ghostWork.cancelTask(taskId);
 ```
 
-If cancellation succeeds, the task transitions to `CANCELLED` and a `TASK_CANCELLED` event is published.
+`CancellationResult` reports whether the target was found, whether the first
+request won, the operation state before explicit cancellation, targeted queued
+and running tasks, `Future.cancel(...)` attempts and acceptances, and tasks that
+remain active.
+
+### Cooperative Tasks
+
+Code running in a tracked task can read its immutable token:
+
+```java
+CancellationToken token =
+        GhostWorkContext.currentCancellationToken();
+
+while (hasMoreData()) {
+    token.throwIfCancellationRequested();
+    processNextBatch();
+}
+```
+
+Outside a tracked task, `currentCancellationToken()` returns a non-cancellable
+token. Throwing the standard `CancellationException` after a tracked request
+finishes the task as `CANCELLED`; an unrelated exception remains `FAILED`.
+
+Register resource-specific cleanup without asking GhostWork to guess how a
+resource should be stopped:
+
+```java
+CancellationToken token =
+        GhostWorkContext.currentCancellationToken();
+ExternalCall call = client.newCall(request);
+
+try (var registration = token.onCancellation(call::cancel)) {
+    return call.execute();
+}
+```
+
+Callbacks run at most once, may be removed by closing their registration, and
+are isolated from one another. A callback registered after cancellation runs
+immediately.
+
+### Detached Tasks
+
+Legitimate background work can explicitly outlive its operation:
+
+```java
+ghostWork.executor().submit(
+        TaskOptions.detached("WriteAuditLog"),
+        auditService::write
+);
+```
+
+Detached tasks remain visible and can still be cancelled explicitly with
+`cancelTask(...)`, but owner and parent cancellation do not propagate to them
+and they are excluded from default ghost-task queries.
+
+### Interrupt And Grace Semantics
+
+`Future.cancel(true)` and thread interruption are cooperative mechanisms. They
+do not guarantee that arbitrary Java code, blocking I/O, or third-party
+libraries stop producing side effects. If user code catches
+`InterruptedException`, clears the flag, and returns normally, the task is
+`COMPLETED`; diagnostics still show that interruption was requested, but cannot
+claim it was observed.
+
+Use `refreshCancellationDiagnostics(gracePeriod)` in plain Java to classify
+tasks that remain active after a cancellation request. Spring integration runs
+this check automatically from the configured grace period. Such a task keeps
+its real task state and receives
+`classification=CANCELLATION_IGNORED`.
+
+Cancellation diagnostics are immutable and queryable without exposing the
+registry:
+
+```java
+ghostWork.taskCancellation(taskId);
+ghostWork.cancellationPendingTasks();
+ghostWork.cancellationIgnoredTasks();
+ghostWork.cancelledTasks();
+```
+
+## Migration From 0.6
+
+Version 0.7 is additive. Existing submission methods, executor decoration,
+events, operation APIs, and ghost/stuck queries remain available. Existing
+fire-and-forget work still survives normal operation completion by default.
+Use `TaskOptions.detached(...)` to mark that intent explicitly and keep it out
+of ghost diagnostics. Applications may adopt cancellation tokens gradually;
+unmodified tasks continue to run with their previous behavior.
 
 ## Retention
 
@@ -367,7 +472,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.6.0.jar
+target/ghostwork-0.7.0.jar
 ```
 
 ## Current Scope
@@ -390,7 +495,7 @@ Spring MVC request ownership is available separately:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring-webmvc</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0</version>
 </dependency>
 ```
 

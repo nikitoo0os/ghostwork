@@ -4,6 +4,7 @@ import io.nikitoo0os.context.OperationContext;
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
+import io.nikitoo0os.entity.CancellationCoordinator;
 import io.nikitoo0os.entity.enums.TaskState;
 import io.nikitoo0os.event.GhostWorkEvent;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
@@ -42,6 +43,7 @@ public final class TrackingExecutorService implements ExecutorService {
     private final Clock clock;
     private final GhostWorkEventPublisher eventPublisher;
     private final ExecutorMetadata executorMetadata;
+    private final CancellationCoordinator cancellation;
     private final ConcurrentMap<Runnable, QueuedTask> queuedTasks =
             new ConcurrentHashMap<>();
 
@@ -98,6 +100,12 @@ public final class TrackingExecutorService implements ExecutorService {
                 executorMetadata,
                 "Executor metadata must not be null"
         );
+        this.cancellation = runnableFactory.cancellationCoordinator();
+        if (callableFactory.cancellationCoordinator() != cancellation) {
+            throw new IllegalArgumentException(
+                    "Tracking factories must share one cancellation coordinator"
+            );
+        }
         if (runnableFactory.registry() != registry
                 || callableFactory.registry() != registry) {
             throw new IllegalArgumentException(
@@ -156,10 +164,22 @@ public final class TrackingExecutorService implements ExecutorService {
             String taskName,
             Runnable runnable
     ) {
+        return submit(
+                operation,
+                TaskOptions.inherited(taskName),
+                runnable
+        );
+    }
+
+    public Future<?> submit(
+            Operation operation,
+            TaskOptions options,
+            Runnable runnable
+    ) {
         TrackingRunnable trackingRunnable =
                 runnableFactory.wrap(
                         operation,
-                        taskName,
+                        options,
                         runnable,
                         executorMetadata
                 );
@@ -174,6 +194,10 @@ public final class TrackingExecutorService implements ExecutorService {
             throw exception;
         }
         markSubmitted(trackingRunnable.task());
+        cancellation.attachFuture(
+                trackingRunnable.task().getId(),
+                delegateFuture
+        );
         gate.open();
         trackQueued(delegateFuture, trackingRunnable.task(), false);
 
@@ -181,7 +205,8 @@ public final class TrackingExecutorService implements ExecutorService {
                 delegateFuture,
                 trackingRunnable.task(),
                 clock,
-                eventPublisher
+                eventPublisher,
+                cancellation
         );
     }
 
@@ -190,10 +215,22 @@ public final class TrackingExecutorService implements ExecutorService {
             String taskName,
             Callable<T> callable
     ) {
+        return submit(
+                operation,
+                TaskOptions.inherited(taskName),
+                callable
+        );
+    }
+
+    public <T> Future<T> submit(
+            Operation operation,
+            TaskOptions options,
+            Callable<T> callable
+    ) {
         TrackingCallable<T> trackingCallable =
                 callableFactory.wrap(
                         operation,
-                        taskName,
+                        options,
                         callable,
                         executorMetadata
                 );
@@ -208,6 +245,10 @@ public final class TrackingExecutorService implements ExecutorService {
             throw exception;
         }
         markSubmitted(trackingCallable.task());
+        cancellation.attachFuture(
+                trackingCallable.task().getId(),
+                delegateFuture
+        );
         gate.open();
         trackQueued(delegateFuture, trackingCallable.task(), false);
 
@@ -215,7 +256,8 @@ public final class TrackingExecutorService implements ExecutorService {
                 delegateFuture,
                 trackingCallable.task(),
                 clock,
-                eventPublisher
+                eventPublisher,
+                cancellation
         );
     }
 
@@ -238,6 +280,9 @@ public final class TrackingExecutorService implements ExecutorService {
                 false
         );
         markSubmitted(trackingRunnable.task());
+        cancellation.markFutureUnavailable(
+                trackingRunnable.task().getId()
+        );
 
         try {
             delegate.execute(command);
@@ -256,12 +301,31 @@ public final class TrackingExecutorService implements ExecutorService {
         return submitImplicit(taskName, runnable);
     }
 
+    public Future<?> submit(TaskOptions options, Runnable runnable) {
+        Objects.requireNonNull(options, "Task options must not be null");
+        Optional<Operation> currentOperation = OperationContext.current();
+        return currentOperation.isPresent()
+                ? submit(currentOperation.get(), options, runnable)
+                : submitImplicit(options, runnable);
+    }
+
     public <T> Future<T> submit(String taskName, Callable<T> callable) {
         Optional<Operation> currentOperation = OperationContext.current();
         if (currentOperation.isPresent()) {
             return submit(currentOperation.get(), taskName, callable);
         }
         return submitImplicit(taskName, callable);
+    }
+
+    public <T> Future<T> submit(
+            TaskOptions options,
+            Callable<T> callable
+    ) {
+        Objects.requireNonNull(options, "Task options must not be null");
+        Optional<Operation> currentOperation = OperationContext.current();
+        return currentOperation.isPresent()
+                ? submit(currentOperation.get(), options, callable)
+                : submitImplicit(options, callable);
     }
 
     public void execute(String taskName, Runnable runnable) {
@@ -302,6 +366,9 @@ public final class TrackingExecutorService implements ExecutorService {
                         executorMetadata
                 );
         markSubmitted(trackingRunnable.task());
+        cancellation.markFutureUnavailable(
+                trackingRunnable.task().getId()
+        );
         trackingRunnable.runnable().run();
     }
 
@@ -316,6 +383,9 @@ public final class TrackingExecutorService implements ExecutorService {
                         executorMetadata
                 );
         markSubmitted(trackingCallable.task());
+        cancellation.markFutureUnavailable(
+                trackingCallable.task().getId()
+        );
         return trackingCallable.callable().call();
     }
 
@@ -573,11 +643,19 @@ public final class TrackingExecutorService implements ExecutorService {
     }
 
     private Future<?> submitImplicit(String taskName, Runnable runnable) {
+        return submitImplicit(TaskOptions.inherited(taskName), runnable);
+    }
+
+    private Future<?> submitImplicit(
+            TaskOptions options,
+            Runnable runnable
+    ) {
+        String taskName = options.name();
         Operation operation = createImplicitOperation(taskName);
         TrackingRunnable trackingRunnable =
                 runnableFactory.wrap(
                         operation,
-                        taskName,
+                        options,
                         runnable,
                         executorMetadata
                 );
@@ -597,6 +675,7 @@ public final class TrackingExecutorService implements ExecutorService {
             throw exception;
         }
         markSubmitted(implicit.task());
+        cancellation.attachFuture(implicit.task().getId(), delegateFuture);
         gate.open();
         trackQueued(delegateFuture, implicit.task(), true);
 
@@ -605,7 +684,8 @@ public final class TrackingExecutorService implements ExecutorService {
                 implicit.task(),
                 clock,
                 eventPublisher,
-                true
+                true,
+                cancellation
         );
     }
 
@@ -613,11 +693,19 @@ public final class TrackingExecutorService implements ExecutorService {
             String taskName,
             Callable<T> callable
     ) {
+        return submitImplicit(TaskOptions.inherited(taskName), callable);
+    }
+
+    private <T> Future<T> submitImplicit(
+            TaskOptions options,
+            Callable<T> callable
+    ) {
+        String taskName = options.name();
         Operation operation = createImplicitOperation(taskName);
         TrackingCallable<T> trackingCallable =
                 callableFactory.wrap(
                         operation,
-                        taskName,
+                        options,
                         callable,
                         executorMetadata
                 );
@@ -637,6 +725,7 @@ public final class TrackingExecutorService implements ExecutorService {
             throw exception;
         }
         markSubmitted(implicit.task());
+        cancellation.attachFuture(implicit.task().getId(), delegateFuture);
         gate.open();
         trackQueued(delegateFuture, implicit.task(), true);
 
@@ -645,7 +734,8 @@ public final class TrackingExecutorService implements ExecutorService {
                 implicit.task(),
                 clock,
                 eventPublisher,
-                true
+                true,
+                cancellation
         );
     }
 
@@ -666,6 +756,7 @@ public final class TrackingExecutorService implements ExecutorService {
         Runnable command = () -> runImplicitRunnable(implicit);
         trackQueued(command, implicit.task(), true);
         markSubmitted(implicit.task());
+        cancellation.markFutureUnavailable(implicit.task().getId());
 
         try {
             delegate.execute(command);
@@ -700,6 +791,7 @@ public final class TrackingExecutorService implements ExecutorService {
             throw exception;
         }
         markSubmitted(tracking.task());
+        cancellation.attachFuture(tracking.task().getId(), delegateFuture);
         gate.open();
         trackQueued(delegateFuture, tracking.task(), false);
 
@@ -707,7 +799,8 @@ public final class TrackingExecutorService implements ExecutorService {
                 delegateFuture,
                 tracking.task(),
                 clock,
-                eventPublisher
+                eventPublisher,
+                cancellation
         );
         return new SubmittedCallable<>(delegateFuture, future);
     }

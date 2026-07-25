@@ -1,6 +1,7 @@
 package io.nikitoo0os;
 
 import io.nikitoo0os.entity.Task;
+import io.nikitoo0os.entity.CancellationCoordinator;
 import io.nikitoo0os.event.GhostWorkEvent;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
 import io.nikitoo0os.event.GhostWorkEventType;
@@ -16,6 +17,7 @@ public final class TrackingFuture<T> implements Future<T> {
     private final Task task;
     private final Clock clock;
     private final GhostWorkEventPublisher eventPublisher;
+    private final CancellationCoordinator cancellation;
 
     private final boolean implicitOperation;
 
@@ -24,13 +26,15 @@ public final class TrackingFuture<T> implements Future<T> {
             Task task,
             Clock clock,
             GhostWorkEventPublisher eventPublisher,
-            boolean implicitOperation
+            boolean implicitOperation,
+            CancellationCoordinator cancellation
     ) {
         this.delegate = Objects.requireNonNull(delegate, "Delegate future must not be null");
         this.task = Objects.requireNonNull(task, "Task must not be null");
         this.clock = Objects.requireNonNull(clock, "Clock must not be null");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "Event publisher must not be null");
         this.implicitOperation = implicitOperation;
+        this.cancellation = Objects.requireNonNull(cancellation);
     }
 
     public TrackingFuture(
@@ -39,18 +43,34 @@ public final class TrackingFuture<T> implements Future<T> {
             Clock clock,
             GhostWorkEventPublisher eventPublisher
     ) {
-        this(delegate, task, clock, eventPublisher, false);
+        this(
+                delegate,
+                task,
+                clock,
+                eventPublisher,
+                false,
+                standaloneCoordinator(
+                        delegate, task, clock, eventPublisher
+                )
+        );
+    }
+
+    public TrackingFuture(
+            Future<T> delegate,
+            Task task,
+            Clock clock,
+            GhostWorkEventPublisher eventPublisher,
+            CancellationCoordinator cancellation
+    ) {
+        this(delegate, task, clock, eventPublisher, false, cancellation);
     }
 
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
-        boolean cancelled = delegate.cancel(mayInterruptIfRunning);
-
-        if (cancelled) {
-            cancelTaskIfPossible();
-        }
-
-        return cancelled;
+        return cancellation.cancelFuture(
+                task.getId(),
+                mayInterruptIfRunning
+        );
     }
 
     private void cancelTaskIfPossible() {
@@ -112,5 +132,18 @@ public final class TrackingFuture<T> implements Future<T> {
         } catch (IllegalStateException ignored) {
             // The operation was already finalized concurrently.
         }
+    }
+
+    private static CancellationCoordinator standaloneCoordinator(
+            Future<?> delegate,
+            Task task,
+            Clock clock,
+            GhostWorkEventPublisher events
+    ) {
+        CancellationCoordinator coordinator =
+                new CancellationCoordinator(clock, events);
+        coordinator.register(task, TaskCancellationMode.INHERIT, null);
+        coordinator.attachFuture(task.getId(), delegate);
+        return coordinator;
     }
 }

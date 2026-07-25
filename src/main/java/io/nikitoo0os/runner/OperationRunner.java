@@ -8,6 +8,7 @@ import io.nikitoo0os.event.GhostWorkEvent;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
 import io.nikitoo0os.event.GhostWorkEventType;
 import io.nikitoo0os.operation.OperationDefinition;
+import io.nikitoo0os.entity.enums.OperationState;
 
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -37,19 +38,18 @@ public final class OperationRunner {
         registry.registerOperation(operation);
         try (OperationContext.Scope ignored = OperationContext.open(operation)) {
             runnable.run();
-            operation.complete();
-            eventPublisher.publish(
+            if (operation.tryFinish(OperationState.COMPLETED)) {
+                eventPublisher.publish(
                     new GhostWorkEvent(
                             GhostWorkEventType.OPERATION_COMPLETED,
                             OperationView.from(operation),
                             null,
                             null
                     )
-            );
+                );
+            }
         } catch (Throwable original) {
-            try {
-                operation.fail();
-
+            if (operation.tryFinish(OperationState.FAILED)) {
                 eventPublisher.publish(
                         new GhostWorkEvent(
                                 GhostWorkEventType.OPERATION_FAILED,
@@ -58,10 +58,7 @@ public final class OperationRunner {
                                 original
                         )
                 );
-            } catch (Throwable stateFailure) {
-                original.addSuppressed(stateFailure);
             }
-
             throw original;
         }
     }
@@ -78,20 +75,19 @@ public final class OperationRunner {
 
         try (OperationContext.Scope ignored = OperationContext.open(operation)) {
             T result = callable.call();
-            operation.complete();
-            eventPublisher.publish(
+            if (operation.tryFinish(OperationState.COMPLETED)) {
+                eventPublisher.publish(
                     new GhostWorkEvent(
                             GhostWorkEventType.OPERATION_COMPLETED,
                             OperationView.from(operation),
                             null,
                             null
                     )
-            );
+                );
+            }
             return result;
         } catch (Throwable original) {
-            try {
-                operation.fail();
-
+            if (operation.tryFinish(OperationState.FAILED)) {
                 eventPublisher.publish(
                         new GhostWorkEvent(
                                 GhostWorkEventType.OPERATION_FAILED,
@@ -100,10 +96,7 @@ public final class OperationRunner {
                                 original
                         )
                 );
-            } catch (Throwable stateFailure) {
-                original.addSuppressed(stateFailure);
             }
-
             throw original;
         }
     }

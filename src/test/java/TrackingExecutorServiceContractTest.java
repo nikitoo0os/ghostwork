@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -158,6 +159,7 @@ class TrackingExecutorServiceContractTest {
 
         OperationView operation = ghostWork.operations().getFirst();
         assertEquals(OperationState.TIMED_OUT, operation.state());
+        awaitTaskState(operation.id(), TaskState.CANCELLED);
         assertEquals(
                 TaskState.CANCELLED,
                 ghostWork.tasks(operation.id()).getFirst().state()
@@ -233,5 +235,15 @@ class TrackingExecutorServiceContractTest {
         }
         fail("Operation did not finish in time");
         return null;
+    }
+
+    private void awaitTaskState(UUID operationId, TaskState expected) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        while (System.nanoTime() < deadline) {
+            if (ghostWork.tasks(operationId).getFirst().state() == expected) {
+                return;
+            }
+            Thread.onSpinWait();
+        }
     }
 }

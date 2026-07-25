@@ -1,0 +1,11 @@
+package io.nikitoo0os;
+
+public enum CancellationTrigger {
+    OPERATION_TIMEOUT,
+    CLIENT_ABORT,
+    OPERATION_CANCEL,
+    OPERATION_FAILURE,
+    OPERATION_COMPLETE,
+    APPLICATION_SHUTDOWN,
+    PARENT_TASK_CANCEL
+}

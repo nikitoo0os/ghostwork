@@ -3,12 +3,17 @@ package io.nikitoo0os.entity;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicReference;
+import java.time.Clock;
+import io.nikitoo0os.event.GhostWorkEventPublisher;
 
 public final class Registry {
     private final ConcurrentHashMap<UUID, Operation> operations;
     private final ConcurrentHashMap<UUID, Task> tasks;
     private final ConcurrentHashMap<UUID, Queue<Task>> operationTasks;
     private final Object cleanupLock = new Object();
+    private final AtomicReference<CancellationCoordinator> cancellation =
+            new AtomicReference<>();
 
     public Registry() {
         this.operationTasks = new ConcurrentHashMap<>();
@@ -112,6 +117,21 @@ public final class Registry {
 
     public List<Operation> findOperations() {
         return List.copyOf(operations.values());
+    }
+
+    public CancellationCoordinator cancellationCoordinator(
+            Clock clock,
+            GhostWorkEventPublisher events
+    ) {
+        CancellationCoordinator current = cancellation.get();
+        if (current != null) {
+            return current;
+        }
+        CancellationCoordinator created =
+                new CancellationCoordinator(clock, events);
+        return cancellation.compareAndSet(null, created)
+                ? created
+                : cancellation.get();
     }
 
     public int cleanupCompletedOperations(

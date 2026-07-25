@@ -2,6 +2,7 @@ package io.nikitoo0os;
 
 import io.nikitoo0os.entity.Operation;
 import io.nikitoo0os.entity.Registry;
+import io.nikitoo0os.entity.CancellationCoordinator;
 import io.nikitoo0os.event.GhostWorkEventListener;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
 import io.nikitoo0os.factory.TrackingCallableFactory;
@@ -28,6 +29,8 @@ public final class GhostWork {
     private final Detector detector;
     private final Clock clock;
     private final RetentionPolicy retentionPolicy;
+    private final CancellationCoordinator cancellation;
+    private volatile CancellationPolicy cancellationPolicy;
 
     private GhostWork(
             Registry registry,
@@ -36,7 +39,9 @@ public final class GhostWork {
             Detector detector,
             GhostWorkEventPublisher eventPublisher,
             Clock clock,
-            RetentionPolicy retentionPolicy
+            RetentionPolicy retentionPolicy,
+            CancellationCoordinator cancellation,
+            CancellationPolicy cancellationPolicy
     ) {
         this.registry = Objects.requireNonNull(registry, "Registry must not be null");
         this.operationRunner = Objects.requireNonNull(operationRunner, "Operation runner must not be null");
@@ -51,6 +56,9 @@ public final class GhostWork {
                 retentionPolicy,
                 "Retention policy must not be null"
         );
+        this.cancellation = Objects.requireNonNull(cancellation);
+        this.cancellationPolicy = Objects.requireNonNull(cancellationPolicy);
+        this.cancellation.configurePolicy(cancellationPolicy);
     }
 
     public static GhostWork create(ExecutorService delegate) {
@@ -60,6 +68,18 @@ public final class GhostWork {
     public static GhostWork create(
             ExecutorService delegate,
             RetentionPolicy retentionPolicy
+    ) {
+        return create(
+                delegate,
+                retentionPolicy,
+                CancellationPolicy.conservativeDefaults()
+        );
+    }
+
+    public static GhostWork create(
+            ExecutorService delegate,
+            RetentionPolicy retentionPolicy,
+            CancellationPolicy cancellationPolicy
     ) {
         Objects.requireNonNull(delegate, "Delegate executor must not be null");
         Objects.requireNonNull(
@@ -78,6 +98,8 @@ public final class GhostWork {
 
         TrackingCallableFactory callableFactory =
                 new TrackingCallableFactory(registry, clock, eventPublisher);
+        CancellationCoordinator cancellation =
+                registry.cancellationCoordinator(clock, eventPublisher);
 
         TrackingExecutorService executor =
                 new TrackingExecutorService(
@@ -100,7 +122,9 @@ public final class GhostWork {
                 detector,
                 eventPublisher,
                 clock,
-                retentionPolicy
+                retentionPolicy,
+                cancellation,
+                cancellationPolicy
         );
     }
 
@@ -128,13 +152,27 @@ public final class GhostWork {
         return executor;
     }
 
+    public void configureCancellationPolicy(CancellationPolicy policy) {
+        this.cancellationPolicy = Objects.requireNonNull(
+                policy,
+                "Cancellation policy must not be null"
+        );
+        cancellation.configurePolicy(policy);
+    }
+
     public OperationHandle startOperation(
             String name,
             OperationMetadata metadata
     ) {
         Operation operation = new Operation(name, metadata);
         registry.registerOperation(operation);
-        return new OperationHandle(operation, eventPublisher);
+        return new OperationHandle(
+                operation,
+                eventPublisher,
+                cancellation,
+                cancellationPolicy,
+                registry
+        );
     }
 
     public OperationDetails operationDetails(UUID operationId) {
@@ -143,12 +181,14 @@ public final class GhostWork {
         List<TaskDiagnostics> tasks = registry
                 .findTasksByOperation(operationId)
                 .stream()
-                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .map(task -> diagnostics(task, observedAt))
                 .toList();
         List<TaskDiagnostics> ghosts = detector
                 .detectOutlivedTasks(operationId)
                 .stream()
-                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .filter(task -> cancellation.mode(task.getId())
+                        != TaskCancellationMode.DETACHED)
+                .map(task -> diagnostics(task, observedAt))
                 .toList();
         List<TimelineEntry> timeline = new java.util.ArrayList<>();
         timeline.add(new TimelineEntry(
@@ -197,7 +237,8 @@ public final class GhostWork {
                 operation.getMetadata(),
                 tasks,
                 ghosts,
-                timeline
+                timeline,
+                cancellation.operationView(operationId)
         );
     }
 
@@ -227,6 +268,8 @@ public final class GhostWork {
     public List<TaskView> ghostTasks(UUID operationId) {
         return detector.detectGhostTasks(operationId)
                 .stream()
+                .filter(task -> cancellation.mode(task.getId())
+                        != TaskCancellationMode.DETACHED)
                 .map(TaskView::from)
                 .toList();
     }
@@ -271,6 +314,8 @@ public final class GhostWork {
                 .flatMap(operation -> detector.detectGhostTasks(
                         operation.getId()
                 ).stream())
+                .filter(task -> cancellation.mode(task.getId())
+                        != TaskCancellationMode.DETACHED)
                 .map(TaskView::from)
                 .toList();
 
@@ -298,6 +343,8 @@ public final class GhostWork {
     public List<TaskView> outlivedTasks(UUID operationId) {
         return detector.detectOutlivedTasks(operationId)
                 .stream()
+                .filter(task -> cancellation.mode(task.getId())
+                        != TaskCancellationMode.DETACHED)
                 .map(TaskView::from)
                 .toList();
     }
@@ -306,7 +353,7 @@ public final class GhostWork {
         java.time.Instant observedAt = java.time.Instant.now(clock);
         return registry.findTasksByOperation(operationId)
                 .stream()
-                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .map(task -> diagnostics(task, observedAt))
                 .toList();
     }
 
@@ -317,7 +364,7 @@ public final class GhostWork {
         java.time.Instant observedAt = java.time.Instant.now(clock);
         return detector.detectStuckQueuedTasks(operationId, threshold)
                 .stream()
-                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .map(task -> diagnostics(task, observedAt))
                 .toList();
     }
 
@@ -328,8 +375,170 @@ public final class GhostWork {
         java.time.Instant observedAt = java.time.Instant.now(clock);
         return detector.detectStuckTasks(operationId, threshold)
                 .stream()
-                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .map(task -> diagnostics(task, observedAt))
                 .toList();
+    }
+
+    public TaskCancellationView taskCancellation(UUID taskId) {
+        registry.findTask(taskId);
+        return cancellation.view(taskId);
+    }
+
+    public CancellationResult cancelTask(UUID taskId) {
+        return cancelTask(
+                taskId,
+                CancellationOptions.cancelAll(
+                        CancellationCause.USER_REQUEST
+                )
+        );
+    }
+
+    public CancellationResult cancelTask(
+            UUID taskId,
+            CancellationOptions options
+    ) {
+        Objects.requireNonNull(taskId, "Task id must not be null");
+        Objects.requireNonNull(options, "Cancellation options must not be null");
+        return cancellation.cancelTask(taskId, options);
+    }
+
+    public CancellationResult cancelOperation(UUID operationId) {
+        return cancelOperation(
+                operationId,
+                CancellationCause.USER_REQUEST
+        );
+    }
+
+    public CancellationResult cancelOperation(
+            UUID operationId,
+            CancellationCause cause
+    ) {
+        Objects.requireNonNull(operationId, "Operation id must not be null");
+        Objects.requireNonNull(cause, "Cancellation cause must not be null");
+        Operation operation;
+        try {
+            operation = registry.findOperation(operationId);
+        } catch (java.util.NoSuchElementException missing) {
+            return CancellationResult.notFound(
+                    operationId,
+                    cause,
+                    java.time.Instant.now(clock)
+            );
+        }
+        CancellationDecision decision = cancellationPolicy.decide(
+                OperationView.from(operation),
+                CancellationTrigger.OPERATION_CANCEL,
+                registry.findTasksByOperation(operationId)
+                        .stream()
+                        .filter(task -> !task.isFinished())
+                        .map(TaskView::from)
+                        .toList()
+        );
+        return cancellation.cancelOperation(
+                operation,
+                new CancellationOptions(
+                        cause,
+                        decision.policy().cancelQueued(),
+                        decision.policy().interruptRunning()
+                ),
+                true
+        );
+    }
+
+    public CancellationResult propagateCancellation(
+            UUID operationId,
+            CancellationTrigger trigger,
+            CancellationCause cause
+    ) {
+        Objects.requireNonNull(operationId);
+        Objects.requireNonNull(trigger);
+        Objects.requireNonNull(cause);
+        Operation operation;
+        try {
+            operation = registry.findOperation(operationId);
+        } catch (java.util.NoSuchElementException missing) {
+            return CancellationResult.notFound(
+                    operationId,
+                    cause,
+                    java.time.Instant.now(clock)
+            );
+        }
+        List<TaskView> active = registry.findTasksByOperation(operationId)
+                .stream()
+                .filter(task -> !task.isFinished())
+                .map(TaskView::from)
+                .toList();
+        CancellationDecision decision = cancellationPolicy.decide(
+                OperationView.from(operation),
+                trigger,
+                active
+        );
+        if (decision.policy() == ChildCancellationPolicy.NONE) {
+            return new CancellationResult(
+                    operationId,
+                    true,
+                    false,
+                    active.size(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    active.size(),
+                    java.time.Instant.now(clock),
+                    cause,
+                    operation.getState()
+            );
+        }
+        return cancellation.cancelOperation(
+                operation,
+                new CancellationOptions(
+                        cause,
+                        decision.policy().cancelQueued(),
+                        decision.policy().interruptRunning()
+                ),
+                false
+        );
+    }
+
+    public List<TaskDiagnostics> cancellationPendingTasks() {
+        return cancellationTasks(CancellationStatus.PENDING);
+    }
+
+    public List<TaskDiagnostics> cancellationIgnoredTasks() {
+        return cancellationTasks(CancellationStatus.IGNORED);
+    }
+
+    public List<TaskDiagnostics> cancelledTasks() {
+        return cancellationTasks(CancellationStatus.CANCELLED);
+    }
+
+    public int refreshCancellationDiagnostics(Duration gracePeriod) {
+        return cancellation.markGracePeriodExceeded(gracePeriod);
+    }
+
+    private List<TaskDiagnostics> cancellationTasks(
+            CancellationStatus status
+    ) {
+        java.time.Instant observedAt = java.time.Instant.now(clock);
+        return registry.findOperations().stream()
+                .flatMap(operation -> registry
+                        .findTasksByOperation(operation.getId()).stream())
+                .filter(task -> cancellation.view(task.getId()).status()
+                        == status)
+                .map(task -> diagnostics(task, observedAt))
+                .toList();
+    }
+
+    private TaskDiagnostics diagnostics(
+            io.nikitoo0os.entity.Task task,
+            java.time.Instant observedAt
+    ) {
+        return TaskDiagnostics.from(
+                task,
+                observedAt,
+                cancellation.parentTaskId(task.getId()),
+                cancellation.view(task.getId())
+        );
     }
 
     public int cleanup() {

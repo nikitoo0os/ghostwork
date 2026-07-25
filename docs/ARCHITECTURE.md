@@ -28,7 +28,7 @@ This document describes the intended product architecture rather than only the c
 
 The current implementation may temporarily differ from the target structure while GhostWork evolves incrementally.
 
-## 1.1 Implementation Status (`0.6.x`)
+## 1.1 Implementation Status (`0.7.x`)
 
 The framework-independent core currently implements:
 
@@ -45,6 +45,11 @@ The framework-independent core currently implements:
 * additive tracking decorators that share one registry and event publisher.
 * externally owned operations through `OperationHandle`;
 * immutable operation metadata and derived execution timelines;
+* policy-driven operation, task, and parent-child cancellation;
+* cooperative `CancellationToken` propagation and callback registration;
+* independent cancellation request, acceptance, observation, interruption,
+  completion, and grace-period diagnostics;
+* explicit detached-task semantics and cancellation-resistant classification;
 * Spring MVC request ownership in the separate `ghostwork-spring-webmvc`
   module, including Servlet async completion and client-abort classification.
 
@@ -675,13 +680,14 @@ public enum OperationState {
     COMPLETED,
     FAILED,
     TIMED_OUT,
-    ABORTED
+    ABORTED,
+    CANCELLED
 }
 ```
 
 `ABORTED` represents an externally interrupted owner lifecycle, such as a
-disconnected HTTP client. Operation-level `CANCELLED` remains a possible future
-extension; version `0.6.x` does not cancel an operation or its child tasks.
+disconnected HTTP client. `CANCELLED` represents an explicit user or system
+cancellation; timeout and abort states are never rewritten as cancellation.
 
 ## 10.2 Final operation states
 
@@ -692,6 +698,7 @@ COMPLETED
 FAILED
 TIMED_OUT
 ABORTED
+CANCELLED
 ```
 
 ## 10.3 Operation origin
@@ -2475,7 +2482,10 @@ This requires exact contract tests.
 
 ## 41.4 Operation cancellation API
 
-The architecture reserves `OperationState.CANCELLED`, but the programmatic operation cancellation contract still requires design.
+Implemented in `0.7.0` through `OperationHandle.cancel(...)` and
+`GhostWork.cancelOperation(...)`. Explicit cancellation transitions a running
+operation to `CANCELLED`; timeout and client abort retain `TIMED_OUT` and
+`ABORTED` while child cancellation is recorded independently.
 
 ## 41.5 Manual operation timeout
 
@@ -2522,3 +2532,43 @@ GhostWork succeeds when an application developer can use ordinary Java or framew
 * whether lifecycle information remains internally consistent.
 
 The application should receive this visibility without surrendering ownership of its business logic, executor configuration, or failure behavior.
+
+---
+
+# 44. Cancellation Architecture
+
+Cancellation is coordinated per task by an internal
+`CancellationCoordinator`. Each task control owns a
+`CancellationTokenSource`, an immutable public token view, cancellation
+metadata, task hierarchy metadata, and an atomic reference to the delegate
+`Future`. Terminal cleanup clears callbacks and the future reference while the
+immutable diagnostic snapshot remains available until retention removes the
+operation.
+
+The worker wrappers open `OperationContext` and `GhostWorkContext` together and
+restore both in `finally`. Nested submissions record the current task as their
+parent. Owner and parent propagation target only `INHERIT` tasks; `DETACHED`
+tasks remain visible but are excluded from automatic propagation and default
+ghost queries.
+
+Cancellation never collapses into one boolean or replaces the primary task
+state. The model records request, policy, `Future.cancel` attempt and result,
+interrupt request and observation, cooperative observation, terminal
+cancellation, callback failures, and grace-period violation independently.
+
+State rules are:
+
+```text
+SUBMITTED + accepted cancel before start -> CANCELLED
+RUNNING + cancellation request           -> RUNNING / PENDING
+RUNNING + tracked CancellationException  -> CANCELLED
+RUNNING + tracked InterruptedException   -> CANCELLED
+RUNNING + unrelated failure              -> FAILED
+RUNNING + caught interrupt + return      -> COMPLETED
+RUNNING beyond cancellation grace        -> RUNNING / IGNORED
+```
+
+State is committed under task-local synchronization. User callbacks,
+`Future.cancel`, and event listeners execute after that synchronization and
+never under the registry lock. Repeated requests retain the first cause and do
+not repeat callbacks or request events.
