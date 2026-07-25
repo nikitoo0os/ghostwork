@@ -41,6 +41,7 @@ public final class TrackingExecutorService implements ExecutorService {
     private final TrackingCallableFactory callableFactory;
     private final Clock clock;
     private final GhostWorkEventPublisher eventPublisher;
+    private final ExecutorMetadata executorMetadata;
     private final ConcurrentMap<Runnable, QueuedTask> queuedTasks =
             new ConcurrentHashMap<>();
 
@@ -51,6 +52,26 @@ public final class TrackingExecutorService implements ExecutorService {
             Clock clock,
             GhostWorkEventPublisher eventPublisher,
             Registry registry
+    ) {
+        this(
+                delegate,
+                runnableFactory,
+                callableFactory,
+                clock,
+                eventPublisher,
+                registry,
+                ExecutorMetadata.manual(delegate.getClass())
+        );
+    }
+
+    public TrackingExecutorService(
+            ExecutorService delegate,
+            TrackingRunnableFactory runnableFactory,
+            TrackingCallableFactory callableFactory,
+            Clock clock,
+            GhostWorkEventPublisher eventPublisher,
+            Registry registry,
+            ExecutorMetadata executorMetadata
     ) {
         this.delegate = Objects.requireNonNull(
                 delegate,
@@ -72,6 +93,10 @@ public final class TrackingExecutorService implements ExecutorService {
         this.registry = Objects.requireNonNull(
                 registry,
                 "Registry must not be null"
+        );
+        this.executorMetadata = Objects.requireNonNull(
+                executorMetadata,
+                "Executor metadata must not be null"
         );
         if (runnableFactory.registry() != registry
                 || callableFactory.registry() != registry) {
@@ -132,7 +157,12 @@ public final class TrackingExecutorService implements ExecutorService {
             Runnable runnable
     ) {
         TrackingRunnable trackingRunnable =
-                runnableFactory.wrap(operation, taskName, runnable);
+                runnableFactory.wrap(
+                        operation,
+                        taskName,
+                        runnable,
+                        executorMetadata
+                );
         SubmissionGate gate = new SubmissionGate();
         Future<?> delegateFuture;
         try {
@@ -161,7 +191,12 @@ public final class TrackingExecutorService implements ExecutorService {
             Callable<T> callable
     ) {
         TrackingCallable<T> trackingCallable =
-                callableFactory.wrap(operation, taskName, callable);
+                callableFactory.wrap(
+                        operation,
+                        taskName,
+                        callable,
+                        executorMetadata
+                );
         SubmissionGate gate = new SubmissionGate();
         Future<T> delegateFuture;
         try {
@@ -190,14 +225,19 @@ public final class TrackingExecutorService implements ExecutorService {
             Runnable runnable
     ) {
         TrackingRunnable trackingRunnable =
-                runnableFactory.wrap(operation, taskName, runnable);
-        SubmissionGate gate = new SubmissionGate();
-        Runnable command = gate.wrap(trackingRunnable.runnable());
+                runnableFactory.wrap(
+                        operation,
+                        taskName,
+                        runnable,
+                        executorMetadata
+                );
+        Runnable command = trackingRunnable.runnable();
         trackQueued(
                 command,
                 trackingRunnable.task(),
                 false
         );
+        markSubmitted(trackingRunnable.task());
 
         try {
             delegate.execute(command);
@@ -206,8 +246,6 @@ public final class TrackingExecutorService implements ExecutorService {
             reject(trackingRunnable);
             throw exception;
         }
-        markSubmitted(trackingRunnable.task());
-        gate.open();
     }
 
     public Future<?> submit(String taskName, Runnable runnable) {
@@ -230,10 +268,39 @@ public final class TrackingExecutorService implements ExecutorService {
         execute(currentOperationOrThrow(), taskName, runnable);
     }
 
+    public void executeAutomatically(String taskName, Runnable runnable) {
+        Optional<Operation> currentOperation = OperationContext.current();
+        if (currentOperation.isPresent()) {
+            execute(currentOperation.get(), taskName, runnable);
+        } else {
+            executeImplicit(taskName, runnable);
+        }
+    }
+
+    public TrackingExecutorService decorate(
+            ExecutorService newDelegate,
+            ExecutorMetadata metadata
+    ) {
+        return new TrackingExecutorService(
+                newDelegate,
+                runnableFactory,
+                callableFactory,
+                clock,
+                eventPublisher,
+                registry,
+                metadata
+        );
+    }
+
     public void runTask(String taskName, Runnable runnable) {
         Operation operation = currentOperationOrThrow();
         TrackingRunnable trackingRunnable =
-                runnableFactory.wrap(operation, taskName, runnable);
+                runnableFactory.wrap(
+                        operation,
+                        taskName,
+                        runnable,
+                        executorMetadata
+                );
         markSubmitted(trackingRunnable.task());
         trackingRunnable.runnable().run();
     }
@@ -242,7 +309,12 @@ public final class TrackingExecutorService implements ExecutorService {
             throws Exception {
         Operation operation = currentOperationOrThrow();
         TrackingCallable<T> trackingCallable =
-                callableFactory.wrap(operation, taskName, callable);
+                callableFactory.wrap(
+                        operation,
+                        taskName,
+                        callable,
+                        executorMetadata
+                );
         markSubmitted(trackingCallable.task());
         return trackingCallable.callable().call();
     }
@@ -503,7 +575,12 @@ public final class TrackingExecutorService implements ExecutorService {
     private Future<?> submitImplicit(String taskName, Runnable runnable) {
         Operation operation = createImplicitOperation(taskName);
         TrackingRunnable trackingRunnable =
-                runnableFactory.wrap(operation, taskName, runnable);
+                runnableFactory.wrap(
+                        operation,
+                        taskName,
+                        runnable,
+                        executorMetadata
+                );
         TrackingRunnable implicit = new TrackingRunnable(
                 trackingRunnable.task(),
                 trackingRunnable.runnable(),
@@ -538,7 +615,12 @@ public final class TrackingExecutorService implements ExecutorService {
     ) {
         Operation operation = createImplicitOperation(taskName);
         TrackingCallable<T> trackingCallable =
-                callableFactory.wrap(operation, taskName, callable);
+                callableFactory.wrap(
+                        operation,
+                        taskName,
+                        callable,
+                        executorMetadata
+                );
         TrackingCallable<T> implicit = new TrackingCallable<>(
                 trackingCallable.task(),
                 trackingCallable.callable(),
@@ -570,15 +652,20 @@ public final class TrackingExecutorService implements ExecutorService {
     private void executeImplicit(String taskName, Runnable runnable) {
         Operation operation = createImplicitOperation(taskName);
         TrackingRunnable trackingRunnable =
-                runnableFactory.wrap(operation, taskName, runnable);
+                runnableFactory.wrap(
+                        operation,
+                        taskName,
+                        runnable,
+                        executorMetadata
+                );
         TrackingRunnable implicit = new TrackingRunnable(
                 trackingRunnable.task(),
                 trackingRunnable.runnable(),
                 true
         );
-        SubmissionGate gate = new SubmissionGate();
-        Runnable command = gate.wrap(() -> runImplicitRunnable(implicit));
+        Runnable command = () -> runImplicitRunnable(implicit);
         trackQueued(command, implicit.task(), true);
+        markSubmitted(implicit.task());
 
         try {
             delegate.execute(command);
@@ -587,8 +674,6 @@ public final class TrackingExecutorService implements ExecutorService {
             reject(implicit);
             throw exception;
         }
-        markSubmitted(implicit.task());
-        gate.open();
     }
 
     private <T> SubmittedCallable<T> submitForCompletion(
@@ -598,7 +683,12 @@ public final class TrackingExecutorService implements ExecutorService {
             ExecutorCompletionService<T> completion
     ) {
         TrackingCallable<T> tracking =
-                callableFactory.wrap(operation, taskName, callable);
+                callableFactory.wrap(
+                        operation,
+                        taskName,
+                        callable,
+                        executorMetadata
+                );
         SubmissionGate gate = new SubmissionGate();
         Future<T> delegateFuture;
         try {
@@ -623,7 +713,7 @@ public final class TrackingExecutorService implements ExecutorService {
     }
 
     private void markSubmitted(Task task) {
-        task.submit();
+        task.submit(Instant.now(clock));
         eventPublisher.publish(new GhostWorkEvent(
                 GhostWorkEventType.TASK_SUBMITTED,
                 OperationView.from(task.getParentOperation()),

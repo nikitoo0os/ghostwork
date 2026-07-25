@@ -5,15 +5,31 @@ import io.nikitoo0os.entity.enums.TaskState;
 import java.time.Instant;
 
 public final class TaskSnapshot {
+    private final Instant submittedAt;
     private final Instant startedAt;
     private final Instant finishedAt;
     private final TaskState state;
 
     public TaskSnapshot(Instant startedAt, Instant finishedAt, TaskState state) {
+        this(null, startedAt, finishedAt, state);
+    }
+
+    public TaskSnapshot(
+            Instant submittedAt,
+            Instant startedAt,
+            Instant finishedAt,
+            TaskState state
+    ) {
         if (state != null) {
-            if (state == TaskState.CREATED || state == TaskState.SUBMITTED) {
+            if (state == TaskState.CREATED) {
+                if (submittedAt != null || startedAt != null || finishedAt != null) {
+                    throw new IllegalStateException("Created task should not have lifecycle timestamps.");
+                }
+            }
+
+            if (state == TaskState.SUBMITTED) {
                 if (startedAt != null || finishedAt != null) {
-                    throw new IllegalStateException("Task with the " + state.name() + " state should not have a start and end time.");
+                    throw new IllegalStateException("Submitted task must not have start or finish time.");
                 }
             }
 
@@ -45,13 +61,17 @@ public final class TaskSnapshot {
                 }
             }
 
-
+            this.submittedAt = submittedAt;
             this.startedAt = startedAt;
             this.finishedAt = finishedAt;
             this.state = state;
         } else {
             throw new NullPointerException("Task state must not be null");
         }
+    }
+
+    public Instant getSubmittedAt() {
+        return submittedAt;
     }
 
     public Instant getStartedAt() {

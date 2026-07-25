@@ -1,6 +1,7 @@
 package io.nikitoo0os.factory;
 
 import io.nikitoo0os.entity.Operation;
+import io.nikitoo0os.ExecutorMetadata;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
@@ -39,10 +40,28 @@ public final class TrackingCallableFactory {
             String taskName,
             Callable<T> delegate
     ) {
+        return wrap(
+                operation,
+                taskName,
+                delegate,
+                new ExecutorMetadata(
+                        null,
+                        "unknown",
+                        io.nikitoo0os.SubmissionSource.MANUAL_API
+                )
+        );
+    }
+
+    public <T> TrackingCallable<T> wrap(
+            Operation operation,
+            String taskName,
+            Callable<T> delegate,
+            ExecutorMetadata executorMetadata
+    ) {
         Objects.requireNonNull(operation);
         Objects.requireNonNull(delegate);
 
-        Task task = new Task(taskName, operation);
+        Task task = new Task(taskName, operation, executorMetadata);
         registry.registerTask(task);
 
         return new TrackingCallable<>(

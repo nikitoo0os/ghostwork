@@ -128,6 +128,88 @@ public final class GhostWork {
         return executor;
     }
 
+    public OperationHandle startOperation(
+            String name,
+            OperationMetadata metadata
+    ) {
+        Operation operation = new Operation(name, metadata);
+        registry.registerOperation(operation);
+        return new OperationHandle(operation, eventPublisher);
+    }
+
+    public OperationDetails operationDetails(UUID operationId) {
+        Operation operation = registry.findOperation(operationId);
+        java.time.Instant observedAt = java.time.Instant.now(clock);
+        List<TaskDiagnostics> tasks = registry
+                .findTasksByOperation(operationId)
+                .stream()
+                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .toList();
+        List<TaskDiagnostics> ghosts = detector
+                .detectOutlivedTasks(operationId)
+                .stream()
+                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .toList();
+        List<TimelineEntry> timeline = new java.util.ArrayList<>();
+        timeline.add(new TimelineEntry(
+                operation.getStartedAt(),
+                "OPERATION_STARTED",
+                "Operation started",
+                null
+        ));
+        tasks.forEach(task -> {
+            if (task.submittedAt() != null) {
+                timeline.add(new TimelineEntry(
+                        task.submittedAt(),
+                        "TASK_SUBMITTED",
+                        task.taskName() + " submitted",
+                        task.taskId()
+                ));
+            }
+            if (task.startedAt() != null) {
+                timeline.add(new TimelineEntry(
+                        task.startedAt(),
+                        "TASK_STARTED",
+                        task.taskName() + " started",
+                        task.taskId()
+                ));
+            }
+            if (task.finishedAt() != null) {
+                timeline.add(new TimelineEntry(
+                        task.finishedAt(),
+                        "TASK_FINISHED",
+                        task.taskName() + " " + task.state(),
+                        task.taskId()
+                ));
+            }
+        });
+        if (operation.getFinishedAt() != null) {
+            timeline.add(new TimelineEntry(
+                    operation.getFinishedAt(),
+                    "OPERATION_FINISHED",
+                    "Operation " + operation.getState(),
+                    null
+            ));
+        }
+        timeline.sort(java.util.Comparator.comparing(TimelineEntry::timestamp));
+        return new OperationDetails(
+                OperationView.from(operation),
+                operation.getMetadata(),
+                tasks,
+                ghosts,
+                timeline
+        );
+    }
+
+    public TrackingExecutorService decorate(
+            ExecutorService delegate,
+            ExecutorMetadata metadata
+    ) {
+        Objects.requireNonNull(delegate, "Delegate executor must not be null");
+        Objects.requireNonNull(metadata, "Executor metadata must not be null");
+        return executor.decorate(delegate, metadata);
+    }
+
     public List<OperationView> operations() {
         return registry.findOperations()
                 .stream()
@@ -211,6 +293,43 @@ public final class GhostWork {
 
     public GhostWorkMonitor monitor(ScheduledExecutorService scheduler) {
         return new GhostWorkMonitor(this, scheduler);
+    }
+
+    public List<TaskView> outlivedTasks(UUID operationId) {
+        return detector.detectOutlivedTasks(operationId)
+                .stream()
+                .map(TaskView::from)
+                .toList();
+    }
+
+    public List<TaskDiagnostics> taskDiagnostics(UUID operationId) {
+        java.time.Instant observedAt = java.time.Instant.now(clock);
+        return registry.findTasksByOperation(operationId)
+                .stream()
+                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .toList();
+    }
+
+    public List<TaskDiagnostics> stuckQueuedTasks(
+            UUID operationId,
+            Duration threshold
+    ) {
+        java.time.Instant observedAt = java.time.Instant.now(clock);
+        return detector.detectStuckQueuedTasks(operationId, threshold)
+                .stream()
+                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .toList();
+    }
+
+    public List<TaskDiagnostics> stuckRunningTasks(
+            UUID operationId,
+            Duration threshold
+    ) {
+        java.time.Instant observedAt = java.time.Instant.now(clock);
+        return detector.detectStuckTasks(operationId, threshold)
+                .stream()
+                .map(task -> TaskDiagnostics.from(task, observedAt))
+                .toList();
     }
 
     public int cleanup() {

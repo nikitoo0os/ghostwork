@@ -28,7 +28,7 @@ This document describes the intended product architecture rather than only the c
 
 The current implementation may temporarily differ from the target structure while GhostWork evolves incrementally.
 
-## 1.1 Implementation Status (`0.4.x`)
+## 1.1 Implementation Status (`0.6.x`)
 
 The framework-independent core currently implements:
 
@@ -40,6 +40,13 @@ The framework-independent core currently implements:
 * cancellation, rejection, interruption, and bulk-operation tracking;
 * ghost and stuck diagnostics;
 * configurable in-memory retention by TTL and completed-operation count.
+* separate queued-stuck and running-stuck diagnostics;
+* immutable executor, submission-source, and worker-thread metadata;
+* additive tracking decorators that share one registry and event publisher.
+* externally owned operations through `OperationHandle`;
+* immutable operation metadata and derived execution timelines;
+* Spring MVC request ownership in the separate `ghostwork-spring-webmvc`
+  module, including Servlet async completion and client-abort classification.
 
 Spring AOP integration is published separately as `ghostwork-spring`.
 The opt-in Spring MVC dashboard is published separately as
@@ -668,11 +675,13 @@ public enum OperationState {
     COMPLETED,
     FAILED,
     TIMED_OUT,
-    CANCELLED
+    ABORTED
 }
 ```
 
-The initial implementation may introduce `CANCELLED` later if operation cancellation is not yet supported, but the architecture reserves it as a final state.
+`ABORTED` represents an externally interrupted owner lifecycle, such as a
+disconnected HTTP client. Operation-level `CANCELLED` remains a possible future
+extension; version `0.6.x` does not cancel an operation or its child tasks.
 
 ## 10.2 Final operation states
 
@@ -682,7 +691,7 @@ The following states are final:
 COMPLETED
 FAILED
 TIMED_OUT
-CANCELLED
+ABORTED
 ```
 
 ## 10.3 Operation origin
@@ -1682,7 +1691,7 @@ A task is a ghost when:
 COMPLETED
 FAILED
 TIMED_OUT
-CANCELLED
+ABORTED
 ```
 
 ## 24.2 Active task states
@@ -1698,7 +1707,7 @@ RUNNING
 COMPLETED operation + RUNNING task = ghost
 FAILED operation + RUNNING task    = ghost
 TIMED_OUT operation + RUNNING task = ghost
-CANCELLED operation + RUNNING task = ghost
+ABORTED operation + RUNNING task   = ghost
 ```
 
 The reason the operation ended does not change ghost classification.

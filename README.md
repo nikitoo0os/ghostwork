@@ -18,7 +18,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.4.0</version>
+    <version>0.6.0</version>
 </dependency>
 ```
 
@@ -52,6 +52,8 @@ GhostWork helps answer questions such as:
 * Implicit operation creation when no operation is active
 * Ghost task detection
 * Stuck task detection
+* Separate queued-stuck and running-stuck diagnostics
+* Executor and worker-thread metadata
 * Event listener API
 * Periodic monitoring
 * Configurable in-memory retention
@@ -156,7 +158,7 @@ Spring AOP support lives in a separate artifact:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring</artifactId>
-    <version>0.4.0</version>
+    <version>0.6.0</version>
 </dependency>
 ```
 
@@ -166,7 +168,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.4.0</version>
+    <version>0.6.0</version>
 </dependency>
 ```
 
@@ -197,6 +199,29 @@ var stuckTasks = ghostWork.stuckTasks(
 ```
 
 A stuck task is a running task whose execution duration is greater than the provided threshold.
+
+Queued and running delays can also be inspected separately:
+
+```java
+var queued = ghostWork.stuckQueuedTasks(
+        operationId,
+        Duration.ofSeconds(10)
+);
+var running = ghostWork.stuckRunningTasks(
+        operationId,
+        Duration.ofSeconds(30)
+);
+var allTaskDiagnostics = ghostWork.taskDiagnostics(operationId);
+```
+
+A queued-stuck task is in `SUBMITTED` state and has waited longer than the
+threshold without starting. A running-stuck task is in `RUNNING` state and has
+executed longer than the threshold. The existing `stuckTasks(...)` method keeps
+its `0.4.x` meaning and reports running tasks only.
+
+`TaskDiagnostics` exposes `submittedAt`, `startedAt`, queue duration, execution
+duration, executor bean/class metadata, submission source, and worker-thread
+metadata. Durations are snapshots observed when the diagnostic query runs.
 
 Create a report:
 
@@ -265,6 +290,7 @@ RUNNING
 COMPLETED
 FAILED
 TIMED_OUT
+ABORTED
 ```
 
 Final operation states are:
@@ -272,6 +298,10 @@ Final operation states are:
 * `COMPLETED`
 * `FAILED`
 * `TIMED_OUT`
+* `ABORTED`
+
+`ABORTED` is used by externally owned operations, such as Spring MVC requests
+whose client disconnected. It does not cancel child tasks.
 
 ## Cancellation
 
@@ -337,7 +367,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.4.0.jar
+target/ghostwork-0.6.0.jar
 ```
 
 ## Current Scope
@@ -351,6 +381,18 @@ It does not currently provide:
 * metrics export
 * OpenTelemetry integration
 * `ScheduledExecutorService` decoration
+* automatic threshold-crossing events (queue/running diagnostics are available
+  through the query API)
+
+Spring MVC request ownership is available separately:
+
+```xml
+<dependency>
+    <groupId>io.github.nikitoo0os</groupId>
+    <artifactId>ghostwork-spring-webmvc</artifactId>
+    <version>0.6.0</version>
+</dependency>
+```
 
 `TrackingExecutorService` implements the complete standard `ExecutorService`
 contract and delegates executor ownership and shutdown semantics to the supplied

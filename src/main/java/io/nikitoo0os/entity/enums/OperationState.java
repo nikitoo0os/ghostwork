@@ -4,5 +4,6 @@ public enum OperationState {
     RUNNING,
     COMPLETED,
     TIMED_OUT,
-    FAILED
+    FAILED,
+    ABORTED
 }

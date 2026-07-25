@@ -41,6 +41,19 @@ public final class Detector {
         return result;
     }
 
+    public List<Task> detectOutlivedTasks(UUID operationId) {
+        Objects.requireNonNull(operationId, "Operation id must not be null");
+        Operation operation = registry.findOperation(operationId);
+        if (!operation.isFinished()) {
+            return List.of();
+        }
+        return registry.findTasksByOperation(operationId)
+                .stream()
+                .filter(task -> task.getState() == TaskState.SUBMITTED
+                        || task.getState() == TaskState.RUNNING)
+                .toList();
+    }
+
     public List<Task> detectStuckTasks(
             UUID operationId,
             Duration threshold
@@ -70,5 +83,26 @@ public final class Detector {
         }
 
         return result;
+    }
+
+    public List<Task> detectStuckQueuedTasks(
+            UUID operationId,
+            Duration threshold
+    ) {
+        Objects.requireNonNull(operationId, "Operation id must not be null");
+        validateThreshold(threshold);
+        registry.findOperation(operationId);
+        Instant now = Instant.now(clock);
+        return registry.findTasksByOperation(operationId)
+                .stream()
+                .filter(task -> task.isQueuedLongerThan(threshold, now))
+                .toList();
+    }
+
+    private static void validateThreshold(Duration threshold) {
+        Objects.requireNonNull(threshold, "Threshold must not be null");
+        if (threshold.isZero() || threshold.isNegative()) {
+            throw new IllegalArgumentException("Threshold must be positive");
+        }
     }
 }

@@ -349,4 +349,109 @@ public class DetectorTest {
                 () -> new Detector(registry, null)
         );
     }
+
+    @Test
+    void submittedTaskShouldBeReportedAsOutlivingFinishedOperation() {
+        Registry registry = new Registry();
+        Operation operation = new Operation("HTTP request");
+        Task task = new Task("Queued notification", operation);
+        registry.registerOperation(operation);
+        registry.registerTask(task);
+        task.submit(NOW.minusSeconds(1));
+        operation.complete();
+
+        Detector detector = new Detector(registry, FIXED_CLOCK);
+        assertEquals(
+                List.of(task),
+                detector.detectOutlivedTasks(operation.getId())
+        );
+        assertTrue(detector.detectGhostTasks(operation.getId()).isEmpty());
+    }
+
+    @Test
+    void submittedTaskWaitingLongerThanThresholdShouldBeQueuedStuck() {
+        Registry registry = new Registry();
+        Operation operation = new Operation("Import");
+        Task task = new Task("LoadCustomers", operation);
+        registry.registerOperation(operation);
+        registry.registerTask(task);
+        task.submit(NOW.minusSeconds(61));
+
+        List<Task> result = new Detector(registry, FIXED_CLOCK)
+                .detectStuckQueuedTasks(
+                        operation.getId(),
+                        Duration.ofSeconds(60)
+                );
+
+        assertEquals(List.of(task), result);
+    }
+
+    @Test
+    void submittedTaskAtThresholdBoundaryShouldNotBeQueuedStuck() {
+        Registry registry = new Registry();
+        Operation operation = new Operation("Import");
+        Task task = new Task("LoadCustomers", operation);
+        registry.registerOperation(operation);
+        registry.registerTask(task);
+        task.submit(NOW.minusSeconds(60));
+
+        assertTrue(new Detector(registry, FIXED_CLOCK)
+                .detectStuckQueuedTasks(
+                        operation.getId(),
+                        Duration.ofSeconds(60)
+                )
+                .isEmpty());
+    }
+
+    @Test
+    void runningAndTerminalTasksShouldNotBeQueuedStuck() {
+        Registry registry = new Registry();
+        Operation operation = new Operation("Import");
+        registry.registerOperation(operation);
+        Task running = new Task("Running", operation);
+        Task completed = new Task("Completed", operation);
+        Task cancelled = new Task("Cancelled", operation);
+        Task rejected = new Task("Rejected", operation);
+        List.of(running, completed, cancelled, rejected)
+                .forEach(registry::registerTask);
+
+        running.submit(NOW.minusSeconds(120));
+        running.start(NOW.minusSeconds(90));
+        completed.submit(NOW.minusSeconds(120));
+        completed.start(NOW.minusSeconds(90));
+        completed.complete(NOW.minusSeconds(30));
+        cancelled.submit(NOW.minusSeconds(120));
+        cancelled.cancel(NOW.minusSeconds(30));
+        rejected.reject(NOW.minusSeconds(30));
+
+        assertTrue(new Detector(registry, FIXED_CLOCK)
+                .detectStuckQueuedTasks(
+                        operation.getId(),
+                        Duration.ofSeconds(60)
+                )
+                .isEmpty());
+    }
+
+    @Test
+    void queuedDetectionShouldValidateOperationAndThreshold() {
+        Registry registry = new Registry();
+        Operation operation = new Operation("Import");
+        registry.registerOperation(operation);
+        Detector detector = new Detector(registry, FIXED_CLOCK);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> detector.detectStuckQueuedTasks(
+                        operation.getId(),
+                        Duration.ZERO
+                )
+        );
+        assertThrows(
+                NoSuchElementException.class,
+                () -> detector.detectStuckQueuedTasks(
+                        UUID.randomUUID(),
+                        Duration.ofSeconds(1)
+                )
+        );
+    }
 }

@@ -1,6 +1,7 @@
 package io.nikitoo0os.entity;
 
 import io.nikitoo0os.entity.enums.OperationState;
+import io.nikitoo0os.OperationMetadata;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -13,12 +14,18 @@ public final class Operation {
     private final String name;
     private final Instant startedAt;
     private final AtomicReference<OperationSnapshot> stateSnapshot;
+    private final AtomicReference<OperationMetadata> metadata;
 
     public Operation(String name) {
+        this(name, null);
+    }
+
+    public Operation(String name, OperationMetadata metadata) {
         this.startedAt = Instant.now();
         this.id = UUID.randomUUID();
         this.name = validateName(Objects.requireNonNull(name));
         stateSnapshot = new AtomicReference<>(new OperationSnapshot(null, OperationState.RUNNING));
+        this.metadata = new AtomicReference<>(metadata);
     }
 
     public UUID getId() {
@@ -69,6 +76,30 @@ public final class Operation {
             throw new NullPointerException("Target state must not be null");
         }
 
+    }
+
+    public boolean tryFinish(OperationState operationState) {
+        Objects.requireNonNull(operationState, "Target state must not be null");
+        if (operationState == OperationState.RUNNING) {
+            throw new IllegalArgumentException("RUNNING cannot be final");
+        }
+        OperationSnapshot current = stateSnapshot.get();
+        return current.getOperationState() == OperationState.RUNNING
+                && stateSnapshot.compareAndSet(
+                        current,
+                        new OperationSnapshot(Instant.now(), operationState)
+                );
+    }
+
+    public OperationMetadata getMetadata() {
+        return metadata.get();
+    }
+
+    public void setMetadata(OperationMetadata metadata) {
+        this.metadata.set(Objects.requireNonNull(
+                metadata,
+                "Operation metadata must not be null"
+        ));
     }
 
     private static String validateName(String name) {
