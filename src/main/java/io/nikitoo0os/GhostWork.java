@@ -9,6 +9,19 @@ import io.nikitoo0os.factory.TrackingCallableFactory;
 import io.nikitoo0os.factory.TrackingRunnableFactory;
 import io.nikitoo0os.operation.OperationDefinition;
 import io.nikitoo0os.runner.OperationRunner;
+import io.nikitoo0os.scheduling.ScheduleExecutionQuery;
+import io.nikitoo0os.scheduling.ScheduleExecutionView;
+import io.nikitoo0os.scheduling.ScheduleId;
+import io.nikitoo0os.scheduling.ScheduleQuery;
+import io.nikitoo0os.scheduling.ScheduleRegistry;
+import io.nikitoo0os.scheduling.ScheduleRetentionPolicy;
+import io.nikitoo0os.scheduling.ScheduleView;
+import io.nikitoo0os.scheduling.TrackingScheduledExecutorService;
+import io.nikitoo0os.scheduling.ExternalScheduleTracker;
+import io.nikitoo0os.scheduling.ScheduleOptions;
+import io.nikitoo0os.scheduling.ScheduleTrigger;
+import io.nikitoo0os.scheduling.ScheduleType;
+import io.nikitoo0os.scheduling.ScheduleEventListener;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -30,6 +43,7 @@ public final class GhostWork {
     private final Clock clock;
     private final RetentionPolicy retentionPolicy;
     private final CancellationCoordinator cancellation;
+    private final ScheduleRegistry scheduleRegistry;
     private volatile CancellationPolicy cancellationPolicy;
 
     private GhostWork(
@@ -57,6 +71,11 @@ public final class GhostWork {
                 "Retention policy must not be null"
         );
         this.cancellation = Objects.requireNonNull(cancellation);
+        this.scheduleRegistry = new ScheduleRegistry(
+                registry::retainOperation,
+                registry::releaseOperation,
+                clock
+        );
         this.cancellationPolicy = Objects.requireNonNull(cancellationPolicy);
         this.cancellation.configurePolicy(cancellationPolicy);
     }
@@ -249,6 +268,97 @@ public final class GhostWork {
         Objects.requireNonNull(delegate, "Delegate executor must not be null");
         Objects.requireNonNull(metadata, "Executor metadata must not be null");
         return executor.decorate(delegate, metadata);
+    }
+
+    public TrackingScheduledExecutorService decorateScheduler(
+            ScheduledExecutorService delegate
+    ) {
+        return decorateScheduler(
+                delegate,
+                ExecutorMetadata.manual(delegate.getClass())
+        );
+    }
+
+    public ExternalScheduleTracker trackSchedule(
+            ScheduleOptions options,
+            ScheduleType type,
+            ScheduleTrigger trigger
+    ) {
+        return ExternalScheduleTracker.create(
+                this,
+                scheduleRegistry,
+                clock,
+                Objects.requireNonNull(options),
+                Objects.requireNonNull(type),
+                Objects.requireNonNull(trigger)
+        );
+    }
+
+    public TrackingScheduledExecutorService decorateScheduler(
+            ScheduledExecutorService delegate,
+            ExecutorMetadata metadata
+    ) {
+        return new TrackingScheduledExecutorService(
+                this,
+                Objects.requireNonNull(delegate),
+                scheduleRegistry,
+                clock,
+                Objects.requireNonNull(metadata)
+        );
+    }
+
+    public ScheduleView schedule(ScheduleId scheduleId) {
+        return scheduleRegistry.find(scheduleId);
+    }
+
+    public List<ScheduleView> schedules() {
+        return schedules(ScheduleQuery.firstPage());
+    }
+
+    public List<ScheduleView> schedules(ScheduleQuery query) {
+        return scheduleRegistry.find(query);
+    }
+
+    public long scheduleCount(java.util.Set<io.nikitoo0os.scheduling.ScheduleState> states) {
+        return scheduleRegistry.count(states);
+    }
+
+    public List<ScheduleExecutionView> scheduleExecutions(
+            ScheduleId scheduleId
+    ) {
+        return scheduleExecutions(
+                scheduleId,
+                ScheduleExecutionQuery.recent()
+        );
+    }
+
+    public List<ScheduleExecutionView> scheduleExecutions(
+            ScheduleId scheduleId,
+            ScheduleExecutionQuery query
+    ) {
+        return scheduleRegistry.executions(scheduleId, query);
+    }
+
+    public long scheduleExecutionCount(
+            ScheduleId scheduleId,
+            java.util.Set<io.nikitoo0os.scheduling.ScheduleExecutionState> states
+    ) {
+        return scheduleRegistry.countExecutions(scheduleId, states);
+    }
+
+    public int cleanupSchedules(ScheduleRetentionPolicy policy) {
+        return scheduleRegistry.cleanup(
+                Objects.requireNonNull(policy),
+                clock.instant()
+        );
+    }
+
+    public void addScheduleListener(ScheduleEventListener listener) {
+        scheduleRegistry.addListener(listener);
+    }
+
+    public void removeScheduleListener(ScheduleEventListener listener) {
+        scheduleRegistry.removeListener(listener);
     }
 
     public List<OperationView> operations() {

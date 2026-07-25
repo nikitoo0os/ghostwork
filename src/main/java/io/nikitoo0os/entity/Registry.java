@@ -14,6 +14,8 @@ public final class Registry {
     private final Object cleanupLock = new Object();
     private final AtomicReference<CancellationCoordinator> cancellation =
             new AtomicReference<>();
+    private final ConcurrentHashMap<UUID, java.util.concurrent.atomic.AtomicInteger>
+            operationRetentionLeases = new ConcurrentHashMap<>();
 
     public Registry() {
         this.operationTasks = new ConcurrentHashMap<>();
@@ -119,6 +121,27 @@ public final class Registry {
         return List.copyOf(operations.values());
     }
 
+    public void retainOperation(UUID operationId) {
+        findOperation(operationId);
+        operationRetentionLeases.compute(operationId, (ignored, count) -> {
+            if (count == null) {
+                return new java.util.concurrent.atomic.AtomicInteger(1);
+            }
+            count.incrementAndGet();
+            return count;
+        });
+    }
+
+    public void releaseOperation(UUID operationId) {
+        Objects.requireNonNull(operationId, "Operation id must not be null");
+        operationRetentionLeases.computeIfPresent(
+                operationId,
+                (ignored, count) -> count.decrementAndGet() <= 0
+                        ? null
+                        : count
+        );
+    }
+
     public CancellationCoordinator cancellationCoordinator(
             Clock clock,
             GhostWorkEventPublisher events
@@ -161,6 +184,8 @@ public final class Registry {
                     .stream()
                     .filter(Operation::isFinished)
                     .filter(this::allTasksFinished)
+                    .filter(operation ->
+                            !operationRetentionLeases.containsKey(operation.getId()))
                     .sorted(Comparator.comparing(Operation::getFinishedAt))
                     .toList();
 
@@ -203,6 +228,7 @@ public final class Registry {
             removedTasks.forEach(task -> tasks.remove(task.getId(), task));
         }
         operations.remove(operationId);
+        operationRetentionLeases.remove(operationId);
     }
 
 }

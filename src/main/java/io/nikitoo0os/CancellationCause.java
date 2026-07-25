@@ -9,5 +9,6 @@ public enum CancellationCause {
     APPLICATION_SHUTDOWN,
     PARENT_TASK_CANCELLED,
     FUTURE_CANCELLED,
+    SCHEDULE_CANCELLED,
     UNKNOWN
 }

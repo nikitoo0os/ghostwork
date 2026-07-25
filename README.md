@@ -18,7 +18,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.7.0</version>
+    <version>0.8.0</version>
 </dependency>
 ```
 
@@ -47,6 +47,13 @@ GhostWork helps answer questions such as:
 * Context propagation across executor threads
 * `Runnable` and `Callable<T>` tracking
 * Complete standard `ExecutorService` decoration
+* Complete standard `ScheduledExecutorService` decoration
+* One-time, fixed-rate, and fixed-delay schedule tracking
+* Separate schedule definitions and per-run operations
+* Late, overlapping, and long-running execution diagnostics
+* Conservative missed fixed-rate execution estimates
+* Schedule lifecycle events and shutdown diagnostics
+* Paginated schedule and execution query API
 * `Future.cancel(...)` tracking
 * Cooperative cancellation tokens and callbacks
 * Policy-driven operation and parent-task cancellation
@@ -127,6 +134,55 @@ Implicit:StandaloneTask
 
 This is useful for applications that want task tracking without manually wrapping every call in `ghostWork.run(...)` or `ghostWork.call(...)`.
 
+## Scheduled Work
+
+Decorate an existing scheduler without changing its ownership or execution
+policies:
+
+```java
+ScheduledExecutorService delegate =
+        Executors.newScheduledThreadPool(2);
+var scheduler = ghostWork.decorateScheduler(delegate);
+
+ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(
+        ScheduleOptions.manual("RefreshCatalog"),
+        catalogService::refresh,
+        0,
+        30,
+        TimeUnit.SECONDS
+);
+```
+
+A recurring schedule is stored once. Every invocation creates a distinct
+operation and root task:
+
+```text
+RefreshCatalog
+|- execution #1 -> Operation -> scheduled invocation task
+|- execution #2 -> Operation -> scheduled invocation task
+`- execution #3 -> Operation -> scheduled invocation task
+```
+
+Read-only diagnostics are available without exposing mutable registry objects:
+
+```java
+var schedules = ghostWork.schedules(ScheduleQuery.firstPage());
+var executions = ghostWork.scheduleExecutions(
+        schedules.getFirst().id(),
+        ScheduleExecutionQuery.recent()
+);
+```
+
+`TrackedScheduledFuture` preserves the delegate `ScheduledFuture` contract.
+Cancellation stops future invocations and `cancel(true)` also propagates the
+request to an active execution operation.
+
+`TrackingScheduledExecutorService.shutdownDiagnostics()` reports the shutdown
+method, active and expected executions at the boundary, tasks returned by
+`shutdownNow()`, and observed termination. Missed fixed-rate counts are
+conservative estimates and expose `missedEstimateExact=false`; scheduler
+coalescing policies can prevent exact reconstruction.
+
 ## Tasks In The Current Thread
 
 Database transactions, request state, and security context are commonly bound to
@@ -162,7 +218,7 @@ Spring AOP support lives in a separate artifact:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring</artifactId>
-    <version>0.7.0</version>
+    <version>0.8.0</version>
 </dependency>
 ```
 
@@ -172,7 +228,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.7.0</version>
+    <version>0.8.0</version>
 </dependency>
 ```
 
@@ -417,14 +473,12 @@ ghostWork.cancellationIgnoredTasks();
 ghostWork.cancelledTasks();
 ```
 
-## Migration From 0.6
+## Migration From 0.7
 
-Version 0.7 is additive. Existing submission methods, executor decoration,
-events, operation APIs, and ghost/stuck queries remain available. Existing
-fire-and-forget work still survives normal operation completion by default.
-Use `TaskOptions.detached(...)` to mark that intent explicitly and keep it out
-of ghost diagnostics. Applications may adopt cancellation tokens gradually;
-unmodified tasks continue to run with their previous behavior.
+Version 0.8 is additive. Existing operation, task, cancellation, executor,
+event, and diagnostic APIs remain available. Scheduling is opt-in: existing
+`ScheduledExecutorService` instances behave exactly as before until passed to
+`decorateScheduler(...)`.
 
 ## Retention
 
@@ -472,7 +526,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.7.0.jar
+target/ghostwork-0.8.0.jar
 ```
 
 ## Current Scope
@@ -485,7 +539,6 @@ It does not currently provide:
 * distributed task tracking
 * metrics export
 * OpenTelemetry integration
-* `ScheduledExecutorService` decoration
 * automatic threshold-crossing events (queue/running diagnostics are available
   through the query API)
 
@@ -495,7 +548,7 @@ Spring MVC request ownership is available separately:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring-webmvc</artifactId>
-    <version>0.7.0</version>
+    <version>0.8.0</version>
 </dependency>
 ```
 
@@ -509,7 +562,7 @@ GhostWork is actively evolving. Planned areas include:
 
 * richer diagnostic DTOs for ghost and stuck tasks
 * metrics and observability integrations
-* scheduled executor decoration
+* metrics and tracing adapters for schedule diagnostics
 * production examples for Spring applications
 
 ## License

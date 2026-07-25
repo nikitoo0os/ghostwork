@@ -28,7 +28,7 @@ This document describes the intended product architecture rather than only the c
 
 The current implementation may temporarily differ from the target structure while GhostWork evolves incrementally.
 
-## 1.1 Implementation Status (`0.7.x`)
+## 1.1 Implementation Status (`0.8.x`)
 
 The framework-independent core currently implements:
 
@@ -37,6 +37,9 @@ The framework-independent core currently implements:
 * operation context propagation and restoration;
 * implicit operations;
 * the complete standard `ExecutorService` contract;
+* the complete standard `ScheduledExecutorService` contract;
+* immutable schedule definitions with distinct per-run executions;
+* fixed-rate, fixed-delay, and one-time scheduling diagnostics;
 * cancellation, rejection, interruption, and bulk-operation tracking;
 * ghost and stuck diagnostics;
 * configurable in-memory retention by TTL and completed-operation count.
@@ -55,8 +58,47 @@ The framework-independent core currently implements:
 
 Spring AOP integration is published separately as `ghostwork-spring`.
 The opt-in Spring MVC dashboard is published separately as
-`ghostwork-dashboard-spring`. Scheduled executor decoration, persistence, and
+`ghostwork-dashboard-spring`. Persistence and
 distributed tracing remain future work.
+
+## 1.2 Scheduled Execution Model
+
+A recurring schedule is not represented as one permanently running task.
+GhostWork stores a stable `ScheduleDefinition` and creates one
+`ScheduleExecution` for every invocation. Each invocation owns a distinct
+operation and a root task; work submitted during the invocation inherits that
+operation through the existing contexts.
+
+```text
+ScheduleDefinition
+  -> ScheduleExecution #1 -> Operation -> root Task -> child Tasks
+  -> ScheduleExecution #2 -> Operation -> root Task -> child Tasks
+  -> ScheduleExecution #3 -> Operation -> root Task -> child Tasks
+```
+
+Schedule lifecycle:
+
+```text
+CREATED -> ACTIVE -> COMPLETED
+                  -> FAILED
+                  -> CANCELLED
+CREATED ----------------> FAILED
+```
+
+Execution lifecycle:
+
+```text
+EXPECTED -> RUNNING -> COMPLETED
+                    -> FAILED
+                    -> CANCELLED
+EXPECTED ----------------> CANCELLED
+```
+
+Late, overlap, and long-running are orthogonal diagnostics, not lifecycle
+states. Fixed-rate expectations are anchored to the first scheduled instant;
+fixed-delay expectations are based on the preceding completion instant.
+Trigger-based adapters provide their computed next execution to core rather
+than requiring core to parse framework-specific cron syntax.
 
 ---
 
