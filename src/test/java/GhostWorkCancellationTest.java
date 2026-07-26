@@ -200,7 +200,7 @@ class GhostWorkCancellationTest {
             throws Exception {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        AtomicBoolean interrupted = new AtomicBoolean();
+        CountDownLatch interrupted = new CountDownLatch(1);
         OperationHandle operation = ghostWork.startOperation("cancel", metadata());
         try (var ignored = operation.openScope()) {
             ghostWork.executor().submit("resistant", () -> {
@@ -209,7 +209,7 @@ class GhostWorkCancellationTest {
                     try {
                         release.await();
                     } catch (InterruptedException caught) {
-                        interrupted.set(true);
+                        interrupted.countDown();
                     }
                 }
             });
@@ -221,7 +221,7 @@ class GhostWorkCancellationTest {
         assertEquals(OperationState.RUNNING, result.operationStateBefore());
         assertEquals(OperationState.CANCELLED, operation.view().state());
         assertEquals(1, result.runningTasksTargeted());
-        assertTrue(interrupted.get());
+        assertTrue(interrupted.await(2, TimeUnit.SECONDS));
         assertEquals(TaskState.RUNNING,
                 ghostWork.tasks(operation.id()).getFirst().state());
         release.countDown();

@@ -407,18 +407,43 @@ class TrackingScheduledExecutorServiceTest {
                         Duration.ofMinutes(1)
                 )
         );
+        CountDownLatch releaseSecondRun = new CountDownLatch(1);
         try {
-            CountDownLatch runs = new CountDownLatch(2);
+            CountDownLatch secondRunStarted = new CountDownLatch(1);
+            AtomicInteger runNumber = new AtomicInteger();
             ScheduledFuture<?> future = localGhostWork
                     .decorateScheduler(localDelegate)
                     .scheduleAtFixedRate(
-                            runs::countDown,
+                            () -> {
+                                if (runNumber.incrementAndGet() == 2) {
+                                    secondRunStarted.countDown();
+                                    try {
+                                        releaseSecondRun.await();
+                                    } catch (InterruptedException interrupted) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
+                            },
                             0,
                             10,
                             TimeUnit.MILLISECONDS
                     );
-            assertTrue(runs.await(2, TimeUnit.SECONDS));
+            assertTrue(secondRunStarted.await(2, TimeUnit.SECONDS));
             future.cancel(false);
+            releaseSecondRun.countDown();
+            await(() -> {
+                List<ScheduleExecutionView> executions =
+                        localGhostWork.scheduleExecutions(
+                                localGhostWork.schedules().getFirst().id()
+                        );
+                return executions.size() == 2
+                        && executions.stream().allMatch(execution ->
+                        switch (execution.state()) {
+                            case COMPLETED, FAILED, CANCELLED -> true;
+                            case EXPECTED, RUNNING -> false;
+                        }
+                );
+            });
 
             assertEquals(0, localGhostWork.cleanup());
             assertEquals(
@@ -432,6 +457,7 @@ class TrackingScheduledExecutorServiceTest {
             );
             assertEquals(1, localGhostWork.cleanup());
         } finally {
+            releaseSecondRun.countDown();
             localDelegate.shutdownNow();
         }
     }
