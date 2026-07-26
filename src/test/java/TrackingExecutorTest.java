@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -103,6 +104,70 @@ public class TrackingExecutorTest {
 
         assertEquals("done", result);
         assertEquals(TaskState.COMPLETED, task.getState());
+    }
+
+    @Test
+    void completableFutureShouldCompleteAfterTaskTerminalTransition()
+            throws Exception {
+        CompletableFuture<String> future;
+        try (OperationContext.Scope ignored =
+                     OperationContext.open(operation)) {
+            future = trackingExecutor.submitCompletable(
+                    "CompletableTask",
+                    () -> "done"
+            );
+        }
+
+        assertEquals("done", future.get(1, TimeUnit.SECONDS));
+        Task task = registry.findTasksByOperation(operation.getId())
+                .getFirst();
+        assertEquals(TaskState.COMPLETED, task.getState());
+    }
+
+    @Test
+    void exceptionalCompletableFutureShouldObserveFailedTask()
+            throws Exception {
+        CompletableFuture<String> future;
+        try (OperationContext.Scope ignored =
+                     OperationContext.open(operation)) {
+            future = trackingExecutor.submitCompletable(
+                    "FailingCompletableTask",
+                    () -> {
+                        throw new IllegalStateException("boom");
+                    }
+            );
+        }
+
+        ExecutionException failure = assertThrows(
+                ExecutionException.class,
+                () -> future.get(1, TimeUnit.SECONDS)
+        );
+        assertInstanceOf(IllegalStateException.class, failure.getCause());
+        Task task = registry.findTasksByOperation(operation.getId())
+                .getFirst();
+        assertEquals(TaskState.FAILED, task.getState());
+    }
+
+    @Test
+    void implicitCompletableFutureShouldFinishItsOperation()
+            throws Exception {
+        CompletableFuture<String> future = trackingExecutor.submitCompletable(
+                "ImplicitCompletableTask",
+                () -> "done"
+        );
+
+        assertEquals("done", future.get(1, TimeUnit.SECONDS));
+        Operation implicit = registry.findOperations().stream()
+                .filter(candidate -> candidate != operation)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(OperationState.COMPLETED, implicit.getState());
+        assertEquals(
+                TaskState.COMPLETED,
+                registry.findTasksByOperation(implicit.getId())
+                        .getFirst()
+                        .getState()
+        );
     }
 
     @Test

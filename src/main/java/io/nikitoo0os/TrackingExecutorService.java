@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -31,6 +32,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -326,6 +328,34 @@ public final class TrackingExecutorService implements ExecutorService {
         return currentOperation.isPresent()
                 ? submit(currentOperation.get(), options, callable)
                 : submitImplicit(options, callable);
+    }
+
+    public <T> CompletableFuture<T> submitCompletable(
+            String taskName,
+            Callable<T> callable
+    ) {
+        return submitCompletable(
+                TaskOptions.inherited(taskName),
+                callable
+        );
+    }
+
+    public <T> CompletableFuture<T> submitCompletable(
+            TaskOptions options,
+            Callable<T> callable
+    ) {
+        Objects.requireNonNull(options, "Task options must not be null");
+        Objects.requireNonNull(callable, "Callable must not be null");
+        Optional<Operation> currentOperation = OperationContext.current();
+        Operation operation = currentOperation.orElseGet(
+                () -> createImplicitOperation(options.name())
+        );
+        return submitCompletable(
+                operation,
+                options,
+                callable,
+                currentOperation.isEmpty()
+        );
     }
 
     public void execute(String taskName, Runnable runnable) {
@@ -739,6 +769,60 @@ public final class TrackingExecutorService implements ExecutorService {
         );
     }
 
+    private <T> CompletableFuture<T> submitCompletable(
+            Operation operation,
+            TaskOptions options,
+            Callable<T> callable,
+            boolean implicitOperation
+    ) {
+        TrackingCallable<T> prepared = callableFactory.wrap(
+                operation,
+                options,
+                callable,
+                executorMetadata
+        );
+        TrackingCallable<T> tracking = new TrackingCallable<>(
+                prepared.task(),
+                prepared.callable(),
+                implicitOperation
+        );
+        CompletableTaskFuture<T> result = new CompletableTaskFuture<>(
+                tracking.task(),
+                cancellation
+        );
+        SubmissionGate gate = new SubmissionGate();
+        Callable<T> execution = implicitOperation
+                ? () -> callImplicitCallable(tracking)
+                : tracking.callable();
+        FutureTask<Void> control = new FutureTask<>(() -> {
+            try {
+                result.complete(gate.wrap(execution).call());
+            } catch (Throwable failure) {
+                result.completeExceptionally(failure);
+                if (failure instanceof Exception exception) {
+                    throw exception;
+                }
+                if (failure instanceof Error error) {
+                    throw error;
+                }
+                throw new IllegalStateException(failure);
+            }
+            return null;
+        });
+
+        try {
+            delegate.execute(control);
+        } catch (RuntimeException exception) {
+            reject(tracking);
+            throw exception;
+        }
+        markSubmitted(tracking.task());
+        cancellation.attachFuture(tracking.task().getId(), control);
+        gate.open();
+        trackQueued(control, tracking.task(), implicitOperation);
+        return result;
+    }
+
     private void executeImplicit(String taskName, Runnable runnable) {
         Operation operation = createImplicitOperation(taskName);
         TrackingRunnable trackingRunnable =
@@ -1133,6 +1217,35 @@ public final class TrackingExecutorService implements ExecutorService {
             if (interrupted) {
                 Thread.currentThread().interrupt();
             }
+        }
+    }
+
+    private static final class CompletableTaskFuture<T>
+            extends CompletableFuture<T> {
+        private final Task task;
+        private final CancellationCoordinator cancellation;
+
+        private CompletableTaskFuture(
+                Task task,
+                CancellationCoordinator cancellation
+        ) {
+            this.task = task;
+            this.cancellation = cancellation;
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            if (isDone()) {
+                return false;
+            }
+            boolean accepted = cancellation.cancelFuture(
+                    task.getId(),
+                    mayInterruptIfRunning
+            );
+            if (accepted) {
+                super.cancel(mayInterruptIfRunning);
+            }
+            return accepted;
         }
     }
 }
