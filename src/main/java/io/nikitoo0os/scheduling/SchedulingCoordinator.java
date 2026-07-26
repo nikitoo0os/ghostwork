@@ -174,7 +174,12 @@ final class SchedulingCoordinator {
         );
 
         Throwable businessFailure = null;
-        try (OperationScope ignored = operation.openScope()) {
+        try (OperationScope ignored = operation.openScope();
+             GhostWorkContext.Scope scheduleScope =
+                     GhostWorkContext.openSchedule(
+                             definition.id().value(),
+                             execution.executionNumber()
+                     )) {
             return ghostWork.executor().callTask(
                     definition.name() + " scheduled invocation",
                     () -> {

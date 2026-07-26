@@ -5,6 +5,9 @@ import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.CancellationCoordinator;
 import io.nikitoo0os.event.GhostWorkEventListener;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
+import io.nikitoo0os.event.GhostWorkLifecycleEventListener;
+import io.nikitoo0os.event.GhostWorkEvent;
+import io.nikitoo0os.event.GhostWorkEventType;
 import io.nikitoo0os.factory.TrackingCallableFactory;
 import io.nikitoo0os.factory.TrackingRunnableFactory;
 import io.nikitoo0os.operation.OperationDefinition;
@@ -74,7 +77,10 @@ public final class GhostWork {
         this.scheduleRegistry = new ScheduleRegistry(
                 registry::retainOperation,
                 registry::releaseOperation,
-                clock
+                clock,
+                eventPublisher,
+                operationId -> registry.findOperation(operationId)
+                        .getCorrelationId()
         );
         this.cancellationPolicy = Objects.requireNonNull(cancellationPolicy);
         this.cancellation.configurePolicy(cancellationPolicy);
@@ -110,7 +116,7 @@ public final class GhostWork {
         Detector detector = new Detector(registry, clock);
 
         GhostWorkEventPublisher eventPublisher =
-                new GhostWorkEventPublisher();
+                new GhostWorkEventPublisher(clock);
 
         TrackingRunnableFactory runnableFactory =
                 new TrackingRunnableFactory(registry, clock, eventPublisher);
@@ -183,8 +189,26 @@ public final class GhostWork {
             String name,
             OperationMetadata metadata
     ) {
-        Operation operation = new Operation(name, metadata);
+        return startOperation(
+                name,
+                metadata,
+                GhostWorkContext.currentCorrelationId()
+                        .orElseGet(CorrelationId::random)
+        );
+    }
+
+    public OperationHandle startOperation(
+            String name,
+            OperationMetadata metadata,
+            CorrelationId correlationId
+    ) {
+        Operation operation = new Operation(
+                name,
+                metadata,
+                correlationId
+        );
         registry.registerOperation(operation);
+        eventPublisher.publishOperationStarted(OperationView.from(operation));
         return new OperationHandle(
                 operation,
                 eventPublisher,
@@ -680,5 +704,17 @@ public final class GhostWork {
 
     public void removeEventListener(GhostWorkEventListener listener) {
         eventPublisher.removeListener(listener);
+    }
+
+    public void addLifecycleEventListener(
+            GhostWorkLifecycleEventListener listener
+    ) {
+        eventPublisher.addLifecycleListener(listener);
+    }
+
+    public void removeLifecycleEventListener(
+            GhostWorkLifecycleEventListener listener
+    ) {
+        eventPublisher.removeLifecycleListener(listener);
     }
 }

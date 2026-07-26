@@ -74,9 +74,12 @@ public final class WrappedRunnable implements Runnable {
         ));
         try (OperationContext.Scope ignored =
                      OperationContext.open(task.getParentOperation());
-             GhostWorkContext.Scope taskScope = GhostWorkContext.open(
+             GhostWorkContext.Scope taskScope = GhostWorkContext.openTask(
                      task.getId(),
-                     cancellation.token(task.getId())
+                     cancellation.token(task.getId()),
+                     task.getSubmissionContext(),
+                     cancellation.view(task.getId()).mode()
+                             == io.nikitoo0os.TaskCancellationMode.DETACHED
              )) {
             delegate.run();
             task.complete(Instant.now(clock));

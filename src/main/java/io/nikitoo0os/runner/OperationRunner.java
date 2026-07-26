@@ -36,6 +36,7 @@ public final class OperationRunner {
         Objects.requireNonNull(runnable, "Runnable must not be null");
         Operation operation = new Operation(operationName);
         registry.registerOperation(operation);
+        publishStarted(operation);
         try (OperationContext.Scope ignored = OperationContext.open(operation)) {
             runnable.run();
             if (operation.tryFinish(OperationState.COMPLETED)) {
@@ -72,6 +73,7 @@ public final class OperationRunner {
         Objects.requireNonNull(callable, "Callable must not be null");
         Operation operation = new Operation(operationName);
         registry.registerOperation(operation);
+        publishStarted(operation);
 
         try (OperationContext.Scope ignored = OperationContext.open(operation)) {
             T result = callable.call();
@@ -107,6 +109,10 @@ public final class OperationRunner {
     ) throws Exception {
         Objects.requireNonNull(definition, "Operation definition must not be null");
         return call(definition.name(), callable);
+    }
+
+    private void publishStarted(Operation operation) {
+        eventPublisher.publishOperationStarted(OperationView.from(operation));
     }
 
 }

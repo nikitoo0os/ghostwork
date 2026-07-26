@@ -3,6 +3,8 @@ package io.nikitoo0os.entity;
 import io.nikitoo0os.entity.enums.TaskState;
 import io.nikitoo0os.ExecutorMetadata;
 import io.nikitoo0os.TaskExecutionMetadata;
+import io.nikitoo0os.GhostWorkContextSnapshot;
+import io.nikitoo0os.GhostWorkContext;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -16,6 +18,7 @@ public final class Task {
     private final String name;
     private final Instant createdAt;
     private final Operation parentOperation;
+    private final GhostWorkContextSnapshot submissionContext;
 
     private final AtomicReference<TaskSnapshot> taskSnapshot;
     private final AtomicReference<TaskExecutionMetadata> executionMetadata;
@@ -37,9 +40,32 @@ public final class Task {
             Operation parentOperation,
             ExecutorMetadata executorMetadata
     ) {
+        this(
+                name,
+                parentOperation,
+                executorMetadata,
+                GhostWorkContext.capture().orElseGet(() ->
+                        GhostWorkContextSnapshot.operation(
+                                parentOperation.getId(),
+                                parentOperation.getCorrelationId()
+                        )
+                )
+        );
+    }
+
+    public Task(
+            String name,
+            Operation parentOperation,
+            ExecutorMetadata executorMetadata,
+            GhostWorkContextSnapshot submissionContext
+    ) {
         this.id = UUID.randomUUID();
         this.name = validateName(Objects.requireNonNull(name));
         this.parentOperation = Objects.requireNonNull(parentOperation);
+        this.submissionContext = Objects.requireNonNull(
+                submissionContext,
+                "Submission context must not be null"
+        );
         this.createdAt = Instant.now();
         this.taskSnapshot = new AtomicReference<>(
                 new TaskSnapshot(null, null, null, TaskState.CREATED)
@@ -291,6 +317,10 @@ public final class Task {
 
     public Operation getParentOperation() {
         return parentOperation;
+    }
+
+    public GhostWorkContextSnapshot getSubmissionContext() {
+        return submissionContext;
     }
 
     public TaskState getState() {

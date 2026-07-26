@@ -2,6 +2,8 @@ package io.nikitoo0os.entity;
 
 import io.nikitoo0os.entity.enums.OperationState;
 import io.nikitoo0os.OperationMetadata;
+import io.nikitoo0os.CorrelationId;
+import io.nikitoo0os.GhostWorkContext;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -12,6 +14,7 @@ public final class Operation {
 
     private final UUID id;
     private final String name;
+    private final CorrelationId correlationId;
     private final Instant startedAt;
     private final AtomicReference<OperationSnapshot> stateSnapshot;
     private final AtomicReference<OperationMetadata> metadata;
@@ -21,9 +24,26 @@ public final class Operation {
     }
 
     public Operation(String name, OperationMetadata metadata) {
+        this(
+                name,
+                metadata,
+                GhostWorkContext.currentCorrelationId()
+                        .orElseGet(CorrelationId::random)
+        );
+    }
+
+    public Operation(
+            String name,
+            OperationMetadata metadata,
+            CorrelationId correlationId
+    ) {
         this.startedAt = Instant.now();
         this.id = UUID.randomUUID();
         this.name = validateName(Objects.requireNonNull(name));
+        this.correlationId = Objects.requireNonNull(
+                correlationId,
+                "Correlation id must not be null"
+        );
         stateSnapshot = new AtomicReference<>(new OperationSnapshot(null, OperationState.RUNNING));
         this.metadata = new AtomicReference<>(metadata);
     }
@@ -34,6 +54,10 @@ public final class Operation {
 
     public String getName() {
         return name;
+    }
+
+    public CorrelationId getCorrelationId() {
+        return correlationId;
     }
 
     public Instant getStartedAt() {

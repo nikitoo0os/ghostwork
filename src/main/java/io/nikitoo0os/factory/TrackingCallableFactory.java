@@ -5,6 +5,10 @@ import io.nikitoo0os.ExecutorMetadata;
 import io.nikitoo0os.entity.Registry;
 import io.nikitoo0os.entity.Task;
 import io.nikitoo0os.event.GhostWorkEventPublisher;
+import io.nikitoo0os.event.GhostWorkEvent;
+import io.nikitoo0os.event.GhostWorkEventType;
+import io.nikitoo0os.OperationView;
+import io.nikitoo0os.TaskView;
 import io.nikitoo0os.wrap.WrappedCallable;
 import io.nikitoo0os.TaskOptions;
 import io.nikitoo0os.GhostWorkContext;
@@ -86,6 +90,10 @@ public final class TrackingCallableFactory {
 
         Task task = new Task(options.name(), operation, executorMetadata);
         registry.registerTask(task);
+        eventPublisher.publishTaskCreated(
+                OperationView.from(operation),
+                TaskView.from(task)
+        );
         cancellation.register(
                 task,
                 options.cancellationMode(),

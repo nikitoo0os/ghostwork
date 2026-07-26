@@ -1,6 +1,7 @@
 package io.nikitoo0os.context;
 
 import io.nikitoo0os.entity.Operation;
+import io.nikitoo0os.GhostWorkContext;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -25,14 +26,19 @@ public final class OperationContext {
     public static Scope open(Operation operation) {
         Operation previousOperation = CURRENT_OPERATION.get();
 
-        CURRENT_OPERATION.set(
-                Objects.requireNonNull(
-                        operation,
-                        "Operation must not be null"
+        Operation current = Objects.requireNonNull(
+                operation,
+                "Operation must not be null"
+        );
+        CURRENT_OPERATION.set(current);
+
+        return new Scope(
+                previousOperation,
+                GhostWorkContext.openOperation(
+                        current.getId(),
+                        current.getCorrelationId()
                 )
         );
-
-        return new Scope(previousOperation);
     }
 
     public static Optional<Operation> current() {
@@ -46,13 +52,19 @@ public final class OperationContext {
     public static final class Scope implements AutoCloseable {
 
         private final Operation previousOperation;
+        private final GhostWorkContext.Scope contextScope;
 
-        private Scope(Operation previousOperation) {
+        private Scope(
+                Operation previousOperation,
+                GhostWorkContext.Scope contextScope
+        ) {
             this.previousOperation = previousOperation;
+            this.contextScope = contextScope;
         }
 
         @Override
         public void close() {
+            contextScope.close();
             if (previousOperation == null) {
                 CURRENT_OPERATION.remove();
             } else {

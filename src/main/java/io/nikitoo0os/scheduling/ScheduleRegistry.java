@@ -9,7 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.time.Clock;
+import io.nikitoo0os.event.GhostWorkEventPublisher;
 
 public final class ScheduleRegistry {
     private final ConcurrentMap<ScheduleId, ScheduleDefinition> schedules =
@@ -17,13 +19,16 @@ public final class ScheduleRegistry {
     private final Consumer<UUID> retainOperation;
     private final Consumer<UUID> releaseOperation;
     private final Clock clock;
+    private final GhostWorkEventPublisher lifecycleEvents;
+    private final Function<UUID, io.nikitoo0os.CorrelationId>
+            correlationResolver;
     private final java.util.concurrent.CopyOnWriteArrayList<ScheduleEventListener>
             listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public ScheduleRegistry() {
         this(ignored -> {
         }, ignored -> {
-        }, Clock.systemUTC());
+        }, Clock.systemUTC(), new GhostWorkEventPublisher(), ignored -> null);
     }
 
     public ScheduleRegistry(
@@ -31,9 +36,45 @@ public final class ScheduleRegistry {
             Consumer<UUID> releaseOperation,
             Clock clock
     ) {
+        this(
+                retainOperation,
+                releaseOperation,
+                clock,
+                new GhostWorkEventPublisher(clock),
+                ignored -> null
+        );
+    }
+
+    public ScheduleRegistry(
+            Consumer<UUID> retainOperation,
+            Consumer<UUID> releaseOperation,
+            Clock clock,
+            GhostWorkEventPublisher lifecycleEvents
+    ) {
+        this(
+                retainOperation,
+                releaseOperation,
+                clock,
+                lifecycleEvents,
+                ignored -> null
+        );
+    }
+
+    public ScheduleRegistry(
+            Consumer<UUID> retainOperation,
+            Consumer<UUID> releaseOperation,
+            Clock clock,
+            GhostWorkEventPublisher lifecycleEvents,
+            Function<UUID, io.nikitoo0os.CorrelationId>
+                    correlationResolver
+    ) {
         this.retainOperation = Objects.requireNonNull(retainOperation);
         this.releaseOperation = Objects.requireNonNull(releaseOperation);
         this.clock = Objects.requireNonNull(clock);
+        this.lifecycleEvents = Objects.requireNonNull(lifecycleEvents);
+        this.correlationResolver = Objects.requireNonNull(
+                correlationResolver
+        );
     }
 
     ScheduleDefinition register(ScheduleDefinition definition) {
@@ -155,9 +196,14 @@ public final class ScheduleRegistry {
         for (ScheduleEventListener listener : listeners) {
             try {
                 listener.onEvent(event);
-            } catch (RuntimeException ignored) {
+            } catch (Throwable ignored) {
                 // Diagnostic listeners must not affect scheduling semantics.
             }
         }
+        io.nikitoo0os.CorrelationId correlation =
+                execution == null || execution.operationId() == null
+                        ? null
+                        : correlationResolver.apply(execution.operationId());
+        lifecycleEvents.publishSchedule(event, correlation);
     }
 }
