@@ -28,9 +28,12 @@ This document describes the intended product architecture rather than only the c
 
 The current implementation may temporarily differ from the target structure while GhostWork evolves incrementally.
 
-## 1.1 Implementation Status (`0.8.x`)
+## 1.1 Implementation Status (`0.9.x`)
 
 The framework-independent core currently implements:
+
+* validated correlation identifiers and immutable context snapshots;
+* typed immutable operation, task, and schedule lifecycle events;
 
 * the `CREATED -> SUBMITTED -> RUNNING -> terminal` task lifecycle;
 * atomic task and operation transitions;

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0
+
+- Added validated `CorrelationId` values to operation and task views.
+- Added immutable `GhostWorkContextSnapshot` capture/open semantics.
+- Propagated operation, task, schedule, cancellation, and detached context
+  without leaking pooled worker threads.
+- Added immutable typed operation, task, and schedule lifecycle events.
+- Preserved the legacy 0.8 event listener API as a compatibility bridge.
+- Ensured tracked `CompletableFuture` results become observable only after the
+  task and implicit operation reach their terminal states.
+
 ## 0.8.0
 
 - Added full `ScheduledExecutorService` and `ScheduledFuture` decoration.

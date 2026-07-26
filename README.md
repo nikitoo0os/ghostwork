@@ -18,7 +18,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.8.0</version>
+    <version>0.9.0</version>
 </dependency>
 ```
 
@@ -66,9 +66,16 @@ GhostWork helps answer questions such as:
 * Separate queued-stuck and running-stuck diagnostics
 * Executor and worker-thread metadata
 * Event listener API
+* Immutable typed lifecycle event API
+* Validated correlation IDs and context snapshots
 * Periodic monitoring
 * Configurable in-memory retention
 * Read-only public views
+
+Observability backends remain optional and live in the
+[`ghostwork-observability`](https://github.com/nikitoo0os/ghostwork-observability)
+repository. Core has no Spring, Micrometer, OpenTelemetry, SLF4J, Jackson, or
+Prometheus dependency.
 
 ## Quick Start
 
@@ -218,7 +225,7 @@ Spring AOP support lives in a separate artifact:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring</artifactId>
-    <version>0.8.0</version>
+    <version>0.9.0</version>
 </dependency>
 ```
 
@@ -228,7 +235,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.8.0</version>
+    <version>0.9.0</version>
 </dependency>
 ```
 
@@ -479,12 +486,12 @@ ghostWork.cancellationIgnoredTasks();
 ghostWork.cancelledTasks();
 ```
 
-## Migration From 0.7
+## Migration From 0.8
 
-Version 0.8 is additive. Existing operation, task, cancellation, executor,
-event, and diagnostic APIs remain available. Scheduling is opt-in: existing
-`ScheduledExecutorService` instances behave exactly as before until passed to
-`decorateScheduler(...)`.
+Version 0.9 is additive. Existing operation, task, cancellation, executor,
+schedule, legacy event, and diagnostic APIs remain available. Public views now
+also expose validated correlation IDs. New typed lifecycle listeners are added
+through `addLifecycleEventListener(...)`.
 
 ## Retention
 
@@ -532,7 +539,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.8.0.jar
+target/ghostwork-0.9.0.jar
 ```
 
 ## Current Scope
@@ -543,10 +550,11 @@ It does not currently provide:
 
 * persistent storage
 * distributed task tracking
-* metrics export
-* OpenTelemetry integration
 * automatic threshold-crossing events (queue/running diagnostics are available
   through the query API)
+
+Metrics, OpenTelemetry, MDC, and Actuator adapters are optional artifacts from
+`ghostwork-observability`; they are intentionally not core dependencies.
 
 Spring MVC request ownership is available separately:
 
@@ -554,7 +562,7 @@ Spring MVC request ownership is available separately:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring-webmvc</artifactId>
-    <version>0.8.0</version>
+    <version>0.9.0</version>
 </dependency>
 ```
 

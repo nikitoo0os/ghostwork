@@ -1,6 +1,6 @@
 # Spring Boot Scheduled Consumer
 
-This standalone Maven project verifies that GhostWork `0.8.0` works as a real
+This standalone Maven project verifies that GhostWork `0.9.0` works as a real
 consumer dependency together with:
 
 * `ghostwork`
