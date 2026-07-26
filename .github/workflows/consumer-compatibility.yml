@@ -1,0 +1,64 @@
+name: Consumer Compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  spring-boot-consumer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out GhostWork core
+        uses: actions/checkout@v4
+        with:
+          path: ghostwork
+
+      - name: Check out GhostWork Spring
+        uses: actions/checkout@v4
+        with:
+          repository: nikitoo0os/ghostwork-spring
+          path: ghostwork-spring
+
+      - name: Check out GhostWork Spring Web MVC
+        uses: actions/checkout@v4
+        with:
+          repository: nikitoo0os/ghostwork-spring-webmvc
+          path: ghostwork-spring-webmvc
+
+      - name: Check out GhostWork Dashboard Spring
+        uses: actions/checkout@v4
+        with:
+          repository: nikitoo0os/ghostwork-dashboard-spring
+          path: ghostwork-dashboard-spring
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Install core
+        run: mvn -B -ntp -f ghostwork/pom.xml clean install
+
+      - name: Install Spring integration
+        run: mvn -B -ntp -f ghostwork-spring/pom.xml clean install
+
+      - name: Install Spring Web MVC integration
+        run: mvn -B -ntp -f ghostwork-spring-webmvc/pom.xml clean install
+
+      - name: Install dashboard
+        run: mvn -B -ntp -f ghostwork-dashboard-spring/pom.xml clean install
+
+      - name: Verify real Spring Boot consumer
+        run: >-
+          mvn -B -ntp
+          -f ghostwork/examples/spring-boot-scheduled-consumer/pom.xml
+          clean verify

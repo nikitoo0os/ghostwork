@@ -232,6 +232,12 @@ The optional dashboard lives in:
 </dependency>
 ```
 
+A runnable compatibility example using core, Spring scheduling, Spring MVC,
+and the dashboard together is available in
+[`examples/spring-boot-scheduled-consumer`](examples/spring-boot-scheduled-consumer).
+Its integration test starts a real Spring Boot server and verifies the complete
+schedule definition -> execution -> operation -> root task chain.
+
 ## Diagnostics
 
 GhostWork exposes read-only views for operations and tasks:
@@ -563,7 +569,7 @@ GhostWork is actively evolving. Planned areas include:
 * richer diagnostic DTOs for ghost and stuck tasks
 * metrics and observability integrations
 * metrics and tracing adapters for schedule diagnostics
-* production examples for Spring applications
+* additional production examples for cancellation and retention policies
 
 ## License
 
