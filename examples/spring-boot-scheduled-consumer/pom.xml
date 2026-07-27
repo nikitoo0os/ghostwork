@@ -6,14 +6,14 @@
 
     <groupId>io.github.nikitoo0os.examples</groupId>
     <artifactId>spring-boot-scheduled-consumer</artifactId>
-    <version>0.9.0</version>
+    <version>0.9.1</version>
     <name>GhostWork Spring Boot Scheduled Consumer</name>
     <description>End-to-end compatibility verification for all GhostWork modules.</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <ghostwork.version>0.9.0</ghostwork.version>
+        <ghostwork.version>0.9.1</ghostwork.version>
         <spring.boot.version>3.4.3</spring.boot.version>
     </properties>
 

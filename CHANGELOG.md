@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1
 
 - Added immutable task source metadata with the application call site and a
   bounded application-only call trace.

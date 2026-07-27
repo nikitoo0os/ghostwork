@@ -18,7 +18,7 @@ GhostWork is available from Maven Central:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork</artifactId>
-    <version>0.9.0</version>
+    <version>0.9.1</version>
 </dependency>
 ```
 
@@ -225,7 +225,7 @@ Spring AOP support lives in a separate artifact:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring</artifactId>
-    <version>0.9.0</version>
+    <version>0.9.1</version>
 </dependency>
 ```
 
@@ -235,7 +235,7 @@ The optional dashboard lives in:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-dashboard-spring</artifactId>
-    <version>0.9.0</version>
+    <version>0.9.1</version>
 </dependency>
 ```
 
@@ -546,7 +546,7 @@ mvn clean verify
 The built jar is created at:
 
 ```text
-target/ghostwork-0.9.0.jar
+target/ghostwork-0.9.1.jar
 ```
 
 ## Current Scope
@@ -569,7 +569,7 @@ Spring MVC request ownership is available separately:
 <dependency>
     <groupId>io.github.nikitoo0os</groupId>
     <artifactId>ghostwork-spring-webmvc</artifactId>
-    <version>0.9.0</version>
+    <version>0.9.1</version>
 </dependency>
 ```
 
