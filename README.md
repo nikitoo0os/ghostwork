@@ -64,7 +64,7 @@ GhostWork helps answer questions such as:
 * Ghost task detection
 * Stuck task detection
 * Separate queued-stuck and running-stuck diagnostics
-* Executor and worker-thread metadata
+* Executor, worker-thread, and task source metadata
 * Event listener API
 * Immutable typed lifecycle event API
 * Validated correlation IDs and context snapshots
@@ -294,7 +294,14 @@ its `0.4.x` meaning and reports running tasks only.
 
 `TaskDiagnostics` exposes `submittedAt`, `startedAt`, queue duration, execution
 duration, executor bean/class metadata, submission source, and worker-thread
-metadata. Durations are snapshots observed when the diagnostic query runs.
+metadata. It also exposes an immutable `TaskSourceMetadata` snapshot containing
+the application call site and a bounded application-only call trace with class,
+method, source file, and line information. Durations are snapshots observed
+when the diagnostic query runs.
+
+Source metadata identifies where tracked work was submitted. It is not a CPU
+profiler and does not attribute elapsed time to arbitrary source lines inside
+the task.
 
 Create a report:
 
@@ -574,10 +581,10 @@ executor.
 
 GhostWork is actively evolving. Planned areas include:
 
-* richer diagnostic DTOs for ghost and stuck tasks
-* metrics and observability integrations
-* metrics and tracing adapters for schedule diagnostics
-* additional production examples for cancellation and retention policies
+* persistent diagnostic storage adapters
+* distributed operation correlation
+* WebFlux and Reactor context propagation
+* additional production examples for cancellation, retention, and scheduling
 
 ## License
 

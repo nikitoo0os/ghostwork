@@ -2033,6 +2033,10 @@ Metadata rules:
 * no mutable internal maps should be exposed;
 * sensitive data must not be captured automatically;
 * method arguments and return values must not be recorded by default;
+* task source metadata may contain only class, method, source file, and line
+  information from a bounded application-only submission trace;
+* source metadata identifies the task submission path and must not be described
+  as line-level CPU attribution;
 * contributors may be supplied by integrations;
 * metadata cardinality must be considered for metrics;
 * metadata keys should have stable naming rules.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added immutable task source metadata with the application call site and a
+  bounded application-only call trace.
+- Preserved executor and worker-thread metadata while exposing source class,
+  method, file, and line diagnostics.
+
 ## 0.9.0
 
 - Added validated `CorrelationId` values to operation and task views.

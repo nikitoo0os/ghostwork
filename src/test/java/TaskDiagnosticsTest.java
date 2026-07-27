@@ -11,6 +11,7 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class TaskDiagnosticsTest {
 
@@ -36,6 +37,7 @@ class TaskDiagnosticsTest {
         assertEquals(Duration.ZERO, diagnostics.executionDuration());
         assertEquals(executor, diagnostics.executionMetadata().executor());
         assertNull(diagnostics.executionMetadata().thread());
+        assertNotNull(diagnostics.executionMetadata().source());
     }
 
     @Test
